@@ -20,6 +20,7 @@ export function videoSource(player: VideoJsPlayer): DisposablePlaySource {
 
   const onTimeUpdate = (): void => {
     const t = player.currentTime()
+    if (typeof t !== 'number') return   // 类型守卫：video.js 8 类型 currentTime() 返回 number | undefined，未就绪时跳过
     if (lastTime !== null) {
       const diff = t - lastTime
       if (diff >= 0 && diff < 1) {
