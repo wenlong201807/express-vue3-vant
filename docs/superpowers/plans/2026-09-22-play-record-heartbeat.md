@@ -1753,6 +1753,7 @@ npx vitest run src/hooks/__tests__/videoSource.test.ts
 预期输出末行：`Tests  5 passed (5)`
 
 > **Task 5 修正记录（2026-09-23 执行回写）**：计划 5.1 原文首用例输入序列 `0 → 0.25 → 0.5 → 1.0` 与其断言 `playedDelta: 0.75` 互斥——差值 0.25 + 0.25 + 0.5 = 1.0（末段 0.5 ∈ [0,1) 必计入，全局约定 #3），实测 4/5。已把序列改为 0.25s 均匀节拍 `0.25 → 0.5 → 0.75 → 1.0`（差值 0.25×3 = 0.75、末位 position 1.0），断言原文保留不变，实测 5/5，与 commit `862d141` 一致。
+> 另：计划 5.3 原文 `const t = player.currentTime()` 按 number 使用，但 video.js 8.24 实际类型为 `currentTime(seconds?): number | undefined`（dist/types/player.d.ts），`vue-tsc` 三处 TS18048/TS2322 红灯；已补 `if (typeof t !== 'number') return` 类型守卫（未就绪时跳过事件，不污染 lastTime/position），运行时行为与 5 用例不变，`npm run build` 绿，见 commit `5f83fd5`。
 
 - [ ] 5.5 提交
 
