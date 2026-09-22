@@ -1641,9 +1641,10 @@ describe('videoSource', () => {
   it('正常播放序列：差值累加为 playedDelta，position 为当前 currentTime', () => {
     const player = makeFakePlayer()
     const source = videoSource(player as never)
-    player.__setTime(0)
+    // 0.25s 均匀节拍（timeupdate 常态）：首拍建基线，其后三拍差值 0.25×3 = 0.75
     player.__setTime(0.25)
     player.__setTime(0.5)
+    player.__setTime(0.75)
     player.__setTime(1.0)
     expect(source.getSnapshot()).toEqual({ playedDelta: 0.75, position: 1.0 })
   })
@@ -1723,6 +1724,7 @@ export function videoSource(player: VideoJsPlayer): DisposablePlaySource {
 
   const onTimeUpdate = (): void => {
     const t = player.currentTime()
+    if (typeof t !== 'number') return   // 类型守卫：video.js 8 类型 currentTime() 返回 number | undefined，未就绪时跳过
     if (lastTime !== null) {
       const diff = t - lastTime
       if (diff >= 0 && diff < 1) {
@@ -1824,25 +1826,27 @@ afterEach(() => {
 })
 
 describe('articleSource', () => {
-  it('百分比换算：向下取整；playedDelta 恒 0', () => {
+  it('百分比换算：向下取整；playedDelta 恒 0', async () => {
     const { container, fire } = makeFakeContainer()
     const source = articleSource(container)
     container.scrollTop = 100     // 100 / (1000-500) = 20%
     fire()
     expect(source.getSnapshot()).toEqual({ playedDelta: 0, position: 20 })
     container.scrollTop = 249.99  // 49.998% → 49
-    fire()
+    fire()                        // 窗口内，尾沿定时器补发
+    await vi.advanceTimersByTimeAsync(200)
     expect(source.getSnapshot().position).toBe(49)
   })
 
-  it('收敛到 0-100：到底为 100，负偏移钳到 0', () => {
+  it('收敛到 0-100：到底为 100，负偏移钳到 0', async () => {
     const { container, fire } = makeFakeContainer()
     const source = articleSource(container)
     container.scrollTop = 500
     fire()
     expect(source.getSnapshot().position).toBe(100)
     container.scrollTop = -20
-    fire()
+    fire()                        // 窗口内，尾沿定时器补发
+    await vi.advanceTimersByTimeAsync(200)
     expect(source.getSnapshot().position).toBe(0)
   })
 
@@ -2069,7 +2073,6 @@ export async function postHeartbeat(payload: HeartbeatPayload): Promise<void> {
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import Vant from 'vant'
 import List from '../List.vue'
@@ -2141,14 +2144,12 @@ describe('List.vue', () => {
   it('点击跳转 /detail/:id 并透传 userid；query 缺省时 guest', async () => {
     const { wrapper, router } = await mountList('/list?userid=u7')
     await wrapper.findAll('.van-cell')[0].trigger('click')
-    await nextTick()
-    await nextTick()
+    await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/detail/video-7092?userid=u7')
 
     const second = await mountList('/list')
     await second.wrapper.findAll('.van-cell')[1].trigger('click')
-    await nextTick()
-    await nextTick()
+    await flushPromises()
     expect(second.router.currentRoute.value.fullPath).toBe('/detail/article-001?userid=guest')
   })
 })
@@ -2272,7 +2273,9 @@ const { fakePlayer, videojsFactory } = vi.hoisted(() => {
     ready: vi.fn(),
     dispose: vi.fn()
   }
-  return { fakePlayer, videojsFactory: vi.fn(() => fakePlayer) }
+  // 参数签名对齐 videojs(el, options) 真实调用形：零参 vi.fn 会使 mock.calls 元组为 []，
+  // 导致 options 取值 calls[0][1] 处 vue-tsc 报 TS2493/TS2352（仅类型层面，运行时不变）
+  return { fakePlayer, videojsFactory: vi.fn((_el: unknown, _options?: unknown) => fakePlayer) }
 })
 
 const { getContentsMock, getRecordMock } = vi.hoisted(() => ({
@@ -2661,7 +2664,7 @@ export default defineConfig({
  *     路由跳转（unmount）触发补报
  *   - 列表页三态渲染（not_started/continue/finished）
  *   - 详情页续播反显（ready 后 currentTime = 服务端 position）
- *   - video.js 渲染（.vjs-play-button / .vjs-playback-rate 控制条元素存在）
+ *   - video.js 渲染（.vjs-play-control / .vjs-playback-rate 控制条元素存在）
  * 运行命令：npm run test:e2e
  * 前置条件：无需手动起服务（webServer 自动拉起 dev:server/dev:client，独立库 e2e/e2e.db）；
  *   需本机安装 Google Chrome（内置 Chromium 无 H.264 无法播放 mp4）；运行前停掉手工 dev 进程
@@ -2770,7 +2773,7 @@ test('列表三态渲染：not_started / continue / finished', async ({ page }) 
   expect(await page.locator('.van-tag').first().getAttribute('class')).toContain('van-tag--success')
 })
 
-test('续播反显与 video.js 控制条（.vjs-play-button / .vjs-playback-rate）', async ({ page }) => {
+test('续播反显与 video.js 控制条（.vjs-play-control / .vjs-playback-rate）', async ({ page }) => {
   const user = `e2e-resume-${ts}`
   await seedRecordViaApi(user, { played_sec: 60, position: 61.486, stay_sec: 65 })
 
@@ -2780,8 +2783,8 @@ test('续播反显与 video.js 控制条（.vjs-play-button / .vjs-playback-rate
   expect(currentTime).toBeGreaterThan(55)   // 服务端 position = 61.486
 
   await page.hover('.video-js')
-  await expect(page.locator('.vjs-play-button')).toHaveCount(1)
-  await expect(page.locator('.vjs-playback-rate')).toHaveCount(1)
+  await expect(page.locator('.vjs-play-control')).toHaveCount(1)
+  await expect(page.locator('button.vjs-playback-rate')).toHaveCount(1)
 })
 ```
 
@@ -2904,7 +2907,7 @@ git commit -m "test(e2e): playwright e2e（三指标落库/hidden 与路由跳�
 | 5 | `src/hooks/__tests__/articleSource.test.ts` | vitest 单测 | 滚动百分比换算（向下取整、0-100 收敛）；200ms 节流首沿+尾沿；playedDelta 恒 0；不可滚动容器 position=100；destroy 清理 | `npx vitest run src/hooks/__tests__/articleSource.test.ts` | `npm install`；容器为测试替身；fake timers | `Tests  5 passed (5)` |
 | 6 | `src/views/__tests__/List.test.ts` | vitest 组件 | Vant Cell+Tag 三态（default 灰/primary 蓝/success 绿）；副标题百分比文案；点击跳 `/detail/:id?userid=`（缺省 guest） | `npx vitest run src/views/__tests__/List.test.ts` | `npm install`；api/record 为 mock | `Tests  3 passed (3)` |
 | 7 | `src/views/__tests__/Detail.test.ts` | vitest 组件 | video：videojs 初始化参数（playbackRates [0.5,1,1.25,1.5,2]）、ready 续播反显、ended 即时上报、unmount dispose；article：v-html 渲染与 position 百分比定位 | `npx vitest run src/views/__tests__/Detail.test.ts` | `npm install`；video.js 与 api/record 为 mock | `Tests  5 passed (5)` |
-| 8 | `e2e/play-record.e2e.spec.ts` | playwright e2e | 真实前后端：播放 17s 三指标落库；hidden 补报且无定时器上报；路由跳转补报；列表三态；续播反显（currentTime=服务端 position）；.vjs-play-button/.vjs-playback-rate 存在 | `npm run test:e2e` | 本机已装 Google Chrome（config channel:'chrome'）；3000/5173 端口空闲（webServer 自动起停，独立库 e2e/e2e.db） | `5 passed` |
+| 8 | `e2e/play-record.e2e.spec.ts` | playwright e2e | 真实前后端：播放 17s 三指标落库；hidden 补报且无定时器上报；路由跳转补报；列表三态；续播反显（currentTime=服务端 position）；.vjs-play-control/button.vjs-playback-rate 存在 | `npm run test:e2e` | 本机已装 Google Chrome（config channel:'chrome'）；3000/5173 端口空闲（webServer 自动起停，独立库 e2e/e2e.db） | `5 passed` |
 | 9 | `scripts/smoke.sh` | curl 冒烟 | 三接口串联：上报/幂等重发/乱序不回退/MAX+position 覆盖/零值默认/三态聚合；可重复执行 | `npm run smoke` | 后端已启动：`npm run dev:server` | 末行输出 `SMOKE OK`（重复执行同样通过） |
 
 ## 全量回归（一条龙）
