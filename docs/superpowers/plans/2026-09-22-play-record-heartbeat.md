@@ -2235,6 +2235,8 @@ npx vitest run src/views/__tests__/List.test.ts
 
 预期输出末行：`Tests  3 passed (3)`
 
+> **Task 6 修正记录（2026-09-23 执行回写）**：计划 6.2 原文用例 3 在两次 `trigger('click')` 后各 `await nextTick()` 两次即断言 `currentRoute.fullPath`——实测（node 24 / vue-router 4.6.4）路由确认落在比两次 nextTick 更长的微任务链上，`currentRoute` 尚未更新，实测 2/3。已改为各 `await flushPromises()`（文件内已有该导入，macrotask 排空路由微任务链），并删除随之未使用的 `import { nextTick } from 'vue'`（tsconfig `noUnusedLocals`），断言值与被测语义不变，实测 3/3，与 commit `72edf93` 一致。
+
 - [ ] 6.6 提交
 
 ```bash
@@ -2575,6 +2577,8 @@ npx vitest run src/views/__tests__/Detail.test.ts
 
 预期输出末行：`Tests  5 passed (5)`
 
+> **Task 6 修正记录（2026-09-23 执行回写）**：计划 6.7 原文 `videojsFactory: vi.fn(() => fakePlayer)` 零参签名使 `mock.calls` 元组类型为 `[]`，用例 1 取 `calls[0][1]` 在 6.11 `vue-tsc --noEmit` 报 TS2493/TS2352（vitest 本身 5/5 通过）。已给工厂补形参 `(_el: unknown, _options?: unknown)` 对齐 `videojs(el, options)` 真实调用形（仅类型层面，下划线前缀豁免 `noUnusedParameters`，运行时不变），vue-tsc 0 error，与 commit `9398e8b` 一致。
+
 - [ ] 6.11 全量单测 + 类型检查回归
 
 ```bash
@@ -2601,6 +2605,8 @@ lsof -ti:3000 -ti:5173 | xargs kill
 git add -A
 git commit -m "feat(views): 详情页 video.js 二态（playbackRates 倍速/ready 续播反显/ended 即时上报/dispose 联动）与图文滚动定位，含组件测试"
 ```
+
+> **Task 6 修正记录（2026-09-23 执行回写）**：计划原文未含 Detail 路由 key（Task 4 质量审 Minor 2，上游预先批准的偏差）——`usePlayRecord` 的 `contentId`/`userId` 为 MaybeRef 但不 watch，仅快照时取值；vue-router 在 `/detail/a → /detail/b`（或仅 query 变化）间复用组件实例时，会把旧基线与新 content_id 组合上报。已在 `src/App.vue` 的 `<router-view>` 加 `:key="route.fullPath"` 强制路由变化即重挂载（计划外文件，List.vue/Detail.vue 原文未动），全量单测 33/33 与 build 不受影响，与 commit `1e7f627` 一致。
 
 ---
 
