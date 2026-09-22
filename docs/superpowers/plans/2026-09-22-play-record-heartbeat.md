@@ -1017,7 +1017,10 @@ export default defineConfig({
  *     unmount 补报+移除全部监听
  *   - hidden 期间停留时钟冻结、无任何定时器上报
  *   - 心跳失败静默不重试；pause/resume/reportNow；onReport 回调
- *   - createDefaultReporter：sendBeacon 可用走 beacon、不可用 fallback fetch keepalive
+ *   - 基线 GET 与首跳竞态：首跳零基线+增量，基线落定后快照自纠（服务端 MAX 自愈）
+ *   - onReport 在 unmount 补报路径抛错不阻断卸载清理（interval 停 + 三监听移除）
+ *   - createDefaultReporter：sendBeacon 可用走 beacon、不可用 fallback fetch keepalive；
+ *     heartbeat fetch 带 keepalive（页面回收不取消 hidden 中 reportNow 的快照）
  * 运行命令：npx vitest run src/hooks/__tests__/usePlayRecord.test.ts
  * 前置条件：无需起后端（fetch 以 stub 返回历史基线零值/固定基线）；jsdom 环境由 vite.config.ts test.environment 提供
  */
@@ -1144,6 +1147,31 @@ describe('心跳调度与全量快照', () => {
     expect(heartbeat).toHaveBeenCalledTimes(2)       // 失败后照常进入下一跳（全量快照自愈口径）
     wrapper.unmount()
   })
+
+  it('基线 GET >15s 才落定：首跳以零基线+增量上报，落定后快照自纠为基线+增量', async () => {
+    const { reporter, mocks } = makeMockReporter()
+    let resolveBaseline!: (value: { ok: boolean; json: () => Promise<typeof BASELINE> }) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean; json: () => Promise<typeof BASELINE> }>((resolve) => {
+          resolveBaseline = resolve
+        })
+    )
+    const { wrapper, handle } = mountHook(makeSource(3, 7), reporter)
+
+    await vi.advanceTimersByTimeAsync(15000)         // 首跳先于基线落定：零基线 + 会话增量（预期行为）
+    expect(mocks.heartbeat).toHaveBeenCalledTimes(1)
+    expect(mocks.heartbeat.mock.calls[0][0]).toMatchObject({ played_sec: 3, stay_sec: 15 })
+
+    resolveBaseline({ ok: true, json: async () => ({ ...BASELINE }) })
+    await vi.advanceTimersByTimeAsync(0)             // 基线落定：latest 自纠为 基线 + 累计增量
+    expect(handle.latest.value).toMatchObject({ played_sec: 13, stay_sec: 115 })
+
+    await vi.advanceTimersByTimeAsync(15000)         // 下一跳恢复全量快照（服务端 MAX 兜底自愈）
+    expect(mocks.heartbeat).toHaveBeenCalledTimes(2)
+    expect(mocks.heartbeat.mock.calls[1][0]).toMatchObject({ played_sec: 13, stay_sec: 130 })
+    wrapper.unmount()
+  })
 })
 
 describe('退出矩阵（全部不由定时器触发）', () => {
@@ -1200,6 +1228,25 @@ describe('退出矩阵（全部不由定时器触发）', () => {
     setVisibility('hidden')
     expect(mocks.beacon).toHaveBeenCalledTimes(1)
   })
+
+  it('onReport 在 unmount 补报路径抛错：清理仍先完成（interval 停 + 三监听移除）', async () => {
+    const { reporter, mocks } = makeMockReporter()
+    const onReport = vi.fn(() => {
+      throw new Error('onReport boom')
+    })
+    const { wrapper } = mountHook(makeSource(5, 9), reporter, onReport)
+
+    await vi.advanceTimersByTimeAsync(0)
+    wrapper.unmount()                               // 补报路径上 onReport 同步抛错
+
+    await vi.advanceTimersByTimeAsync(60000)         // interval 已停：无任何定时器上报（硬约束）
+    expect(mocks.heartbeat).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new Event('pagehide'))      // 三监听已移除：不再补报
+    setVisibility('hidden')
+    expect(mocks.beacon).toHaveBeenCalledTimes(1)    // 仅 unmount 补报那一次（补报先于清理时抛错会跳过全部清理）
+    expect(mocks.beacon.mock.calls[0][0]).toMatchObject({ user_id: 'u1', content_id: 'c1' })
+  })
 })
 
 describe('手动控制与返回值', () => {
@@ -1240,6 +1287,13 @@ describe('createDefaultReporter（默认上报通道）', () => {
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
     expect(JSON.parse(String(init.body))).toMatchObject({ user_id: 'u', content_id: 'c' })
+  })
+
+  it('heartbeat：fetch 带 keepalive: true（hidden 中 ended→reportNow 的丢报窗口加固）', async () => {
+    const reporter = createDefaultReporter()
+    await reporter.heartbeat({ user_id: 'u', content_id: 'c', played_sec: 1, position: 1, stay_sec: 1, client_ts: 1 })
+    const init = fetchMock.mock.calls[0][1] as RequestInit & { keepalive?: boolean }
+    expect(init.keepalive).toBe(true)
   })
 
   it('beacon：sendBeacon 可用且成功时走 sendBeacon，不走 fetch', () => {
@@ -1333,7 +1387,7 @@ const HEARTBEAT_URL = '/api/records/heartbeat'
 
 /**
  * 默认 Reporter（spec §7.1 扩展点2 默认实现）：
- * - heartbeat：fetch POST JSON
+ * - heartbeat：fetch POST JSON + keepalive（hidden 中 ended→reportNow 走本通道，页面回收不取消请求）
  * - beacon：navigator.sendBeacon(Blob type: application/json) → 失败/不可用 fallback fetch keepalive（spec §9）
  */
 export function createDefaultReporter(): Reporter {
@@ -1342,7 +1396,8 @@ export function createDefaultReporter(): Reporter {
       await fetch(HEARTBEAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        keepalive: true
       })
     },
     beacon(payload: HeartbeatPayload): void {
@@ -1472,12 +1527,18 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
 
   onBeforeUnmount(() => {
     if (disposed) return
-    emitAndReport('beacon')                // 路由跳转补报（默认实现 sendBeacon→fetch keepalive fallback）
+    // 先清理再补报（质量审加固）：补报路径（getSnapshot/onReport）抛错时 interval 与三监听仍必被拆除，
+    // 「退出页面后不得再由定时器触发上报」为硬约束；beacon 通道不受 disposed 守卫影响，清理后照常直发
     disposed = true
     stopTimer()
     document.removeEventListener('visibilitychange', onVisibilityChange)
     window.removeEventListener('pagehide', onPageExit)
     window.removeEventListener('beforeunload', onPageExit)
+    try {
+      emitAndReport('beacon')              // 路由跳转补报（默认实现 sendBeacon→fetch keepalive fallback）
+    } catch {
+      // 补报组装抛错静默：清理已完成，全量快照口径下次覆盖自愈
+    }
   })
 
   void loadBaseline()
@@ -1505,13 +1566,15 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
 
 > **Task 4 修正记录（2026-09-23 评审回写）**：计划原文实现 + 原文测试实测 11/12——`latest 暴露当前快照` 用例在基线 GET 落定后拿到的仍是构造时零基线旧快照（原 `latest` 仅在 `emitAndReport` 时更新）；已在 `loadBaseline` 基线赋值后补 `latest.value = makeSnapshot()` 一行，对齐 spec §7.2 第 6 项「latest=当前快照」，与 commit `6d2c0fe` 一致，该行不触发上报、不调 onReport、不影响其余 11 用例。
 
+> **Task 4 加固记录（2026-09-23 质量审回写，commit `a099ce2`）**：① 默认 Reporter heartbeat fetch 加 `keepalive: true`——hidden 中视频 ended→reportNow 走该通道，无 keepalive 时 WebView 回收会取消可能是唯一携带 ≥95% position 的上报（payload ~130B ≪ 64KB 限额）；② onBeforeUnmount 改为先清理（`disposed = true` + 停 interval + 移除三监听）再补报并加 try/catch——原顺序下 onReport/getSnapshot 抛错会跳过全部清理，泄漏的 interval 每 15s 仍上报，违反「退出页面不得由定时器触发上报」硬约束。新增 3 条回归用例（基线竞态自纠 / onReport 抛错清理仍完成 / heartbeat keepalive），4.5 预期 12→15，spec §7.1 与 §9 已同步口径。
+
 - [ ] 4.5 运行测试，确认通过
 
 ```bash
 npx vitest run src/hooks/__tests__/usePlayRecord.test.ts
 ```
 
-预期输出末行：`Test Files  1 passed (1)` / `Tests  12 passed (12)`
+预期输出末行：`Test Files  1 passed (1)` / `Tests  15 passed (15)`
 
 - [ ] 4.6 提交
 
@@ -2514,7 +2577,7 @@ npm run test:unit
 npx vue-tsc --noEmit
 ```
 
-预期输出：vitest `Tests  30 passed (30)`（hook 12 + videoSource 5 + articleSource 5 + List 3 + Detail 5）；vue-tsc 无输出（0 error）
+预期输出：vitest `Tests  33 passed (33)`（hook 15 + videoSource 5 + articleSource 5 + List 3 + Detail 5）；vue-tsc 无输出（0 error）
 
 - [ ] 6.12 手工验收（起服务，浏览器访问）
 
@@ -2823,7 +2886,7 @@ git commit -m "test(e2e): playwright e2e（三指标落库/hidden 与路由跳�
 |---|---|---|---|---|---|---|
 | 1 | `server/__tests__/db.test.js` | node:test 接口 | 建表成功（contents/play_records 按 spec §5）；种子 1 视频 + 2 图文；文件库重复初始化幂等 | `npm run test:server` | `npm install` 已执行；用例自建内存/临时库，不触碰 `data/app.db` | `# tests 3` / `# pass 3` / `# fail 0` |
 | 2 | `server/__tests__/records.test.js` | node:test 接口 | heartbeat INSERT/UPDATE、MAX 幂等重发不变、乱序不回退、position 覆盖、视频/图文 95% 判完与永久性、空记录零值默认、必传 400、未知内容 404、contents 三态聚合、缺省 guest | `npm run test:server` | 同上；每个用例独立内存库 + 随机端口 | `# tests 14`（含 #1）/ `# pass 14` / `# fail 0` |
-| 3 | `src/hooks/__tests__/usePlayRecord.test.ts` | vitest 单测 | 心跳节奏与「基线+增量」全量快照；退出矩阵四事件（hidden 停跳+beacon、visible 重启、pagehide/beforeunload beacon、unmount 补报+移除监听）；hidden 停留时钟冻结；心跳失败静默；pause/resume/reportNow；默认 Reporter 的 sendBeacon 与 fetch keepalive fallback | `npx vitest run src/hooks/__tests__/usePlayRecord.test.ts` | `npm install`；无需起后端（fetch stub） | `Tests  12 passed (12)` |
+| 3 | `src/hooks/__tests__/usePlayRecord.test.ts` | vitest 单测 | 心跳节奏与「基线+增量」全量快照；退出矩阵四事件（hidden 停跳+beacon、visible 重启、pagehide/beforeunload beacon、unmount 补报+移除监听）；hidden 停留时钟冻结；心跳失败静默；pause/resume/reportNow；基线竞态自纠；onReport 抛错清理仍完成；默认 Reporter 的 sendBeacon 与 fetch keepalive（含 heartbeat keepalive） | `npx vitest run src/hooks/__tests__/usePlayRecord.test.ts` | `npm install`；无需起后端（fetch stub） | `Tests  15 passed (15)` |
 | 4 | `src/hooks/__tests__/videoSource.test.ts` | vitest 单测 | timeupdate 差值累加；差值 ≥1s seek 不计；负差值回拖不计；2x 倍速 0.5s 差值正常计入；destroy 移除监听 | `npx vitest run src/hooks/__tests__/videoSource.test.ts` | `npm install`；Player 为测试替身 | `Tests  5 passed (5)` |
 | 5 | `src/hooks/__tests__/articleSource.test.ts` | vitest 单测 | 滚动百分比换算（向下取整、0-100 收敛）；200ms 节流首沿+尾沿；playedDelta 恒 0；不可滚动容器 position=100；destroy 清理 | `npx vitest run src/hooks/__tests__/articleSource.test.ts` | `npm install`；容器为测试替身；fake timers | `Tests  5 passed (5)` |
 | 6 | `src/views/__tests__/List.test.ts` | vitest 组件 | Vant Cell+Tag 三态（default 灰/primary 蓝/success 绿）；副标题百分比文案；点击跳 `/detail/:id?userid=`（缺省 guest） | `npx vitest run src/views/__tests__/List.test.ts` | `npm install`；api/record 为 mock | `Tests  3 passed (3)` |
@@ -2840,7 +2903,7 @@ npm run test:server && npm run test:unit && npm run test:e2e && npm run smoke
 前置：`npm run dev:server` 保持运行（smoke 依赖；e2e 会自动管理自己的端口与独立库，
 执行 e2e 前先停掉手工 dev 进程，结束后再重启 dev:server 跑 smoke）。
 
-预期：server `# pass 14` → unit `Tests  30 passed (30)` → e2e `5 passed` → smoke `SMOKE OK`。
+预期：server `# pass 14` → unit `Tests  33 passed (33)` → e2e `5 passed` → smoke `SMOKE OK`。
 ````
 
 - [ ] 8.2 核对全部测试文件头注释块（三要素齐全：功能说明/运行命令/前置条件）
@@ -2872,7 +2935,7 @@ npm run smoke
 lsof -ti:3000 | xargs kill
 ```
 
-预期输出依次出现：`# pass 14` → `Tests  30 passed (30)` → `5 passed` → `SMOKE OK`
+预期输出依次出现：`# pass 14` → `Tests  33 passed (33)` → `5 passed` → `SMOKE OK`
 
 - [ ] 8.4 提交
 

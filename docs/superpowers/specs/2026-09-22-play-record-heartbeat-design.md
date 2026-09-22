@@ -233,13 +233,13 @@ interface PlaySource {
 }
 
 interface Reporter {
-  heartbeat(payload: HeartbeatPayload): Promise<void>   // 心跳通道
+  heartbeat(payload: HeartbeatPayload): Promise<void>   // 心跳通道（默认实现 fetch keepalive：hidden 中 ended→reportNow 的快照不因页面回收被取消）
   beacon(payload: HeartbeatPayload): void               // 退出补报通道（sendBeacon，失败 fallback fetch keepalive）
 }
 ```
 
 - **扩展点 1 `source`**：`PlaySource` 采集适配器，内置 `videoSource` / `articleSource`（见 7.3）。
-- **扩展点 2 `reporter`**：上报通道，默认实现为「fetch 心跳 + sendBeacon 退出补报」；测试可注入 mock。
+- **扩展点 2 `reporter`**：上报通道，默认实现为「fetch keepalive 心跳 + sendBeacon 退出补报」；测试可注入 mock。
 
 ### 7.2 hook 内部职责（按序）
 
@@ -317,6 +317,7 @@ interface Reporter {
 | 心跳请求失败/弱网 | 静默忽略，下次全量快照覆盖自愈 |
 | 退出丢最后一跳 | `sendBeacon` / beacon 补报 |
 | `sendBeacon` 不支持 | `fetch(..., { keepalive: true })` fallback |
+| 页面/WebView 回收取消未完成请求 | 心跳与补报 fetch 均带 `keepalive: true`（payload ~130B，远低于 64KB 限额） |
 | 重复/乱序上报 | 服务端 `MAX(played_sec / stay_sec)` 保护，不回退 |
 | position 用户拖回 | 如实覆盖（续播取最后位置的产品语义） |
 | hidden 期间 | 停留时钟冻结，心跳停止，不产生任何定时器上报 |
