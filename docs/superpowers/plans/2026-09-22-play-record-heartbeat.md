@@ -1752,6 +1752,8 @@ npx vitest run src/hooks/__tests__/videoSource.test.ts
 
 预期输出末行：`Tests  5 passed (5)`
 
+> **Task 5 修正记录（2026-09-23 执行回写）**：计划 5.1 原文首用例输入序列 `0 → 0.25 → 0.5 → 1.0` 与其断言 `playedDelta: 0.75` 互斥——差值 0.25 + 0.25 + 0.5 = 1.0（末段 0.5 ∈ [0,1) 必计入，全局约定 #3），实测 4/5。已把序列改为 0.25s 均匀节拍 `0.25 → 0.5 → 0.75 → 1.0`（差值 0.25×3 = 0.75、末位 position 1.0），断言原文保留不变，实测 5/5，与 commit `862d141` 一致。
+
 - [ ] 5.5 提交
 
 ```bash
@@ -1970,6 +1972,8 @@ npx vitest run src/hooks/__tests__/videoSource.test.ts src/hooks/__tests__/artic
 ```
 
 预期输出末行：`Test Files  2 passed (2)` / `Tests  10 passed (10)`
+
+> **Task 5 修正记录（2026-09-23 执行回写）**：计划 5.6 原文用例 1/2（百分比换算/收敛）在节流窗口内第二次 `fire()` 后立即断言、未推进 fake timers——按 5.8 实现的节流逻辑（及用例 3 自证的「窗口内暂不生效」），该次计算由尾沿定时器 +200ms 补发，实测 8/10。已补 `await vi.advanceTimersByTimeAsync(200)` 并改 async（与用例 3/5 风格一致），断言值与被测语义不变，实测 10/10，与 commit `6a94b20` 一致。
 
 - [ ] 5.10 提交
 
