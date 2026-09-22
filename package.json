@@ -11,7 +11,7 @@
     "dev:client": "vite",
     "dev": "concurrently -n server,client -c yellow,cyan \"npm:dev:server\" \"npm:dev:client\"",
     "build": "vue-tsc --noEmit && vite build",
-    "test:server": "node --test server/__tests__/",
+    "test:server": "node --test \"server/__tests__/*.test.js\"",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "smoke": "bash scripts/smoke.sh"
