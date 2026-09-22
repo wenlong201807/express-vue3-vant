@@ -1447,6 +1447,7 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
         stay_sec: data.stay_sec ?? 0,
         finished: data.finished ?? 0
       }
+      latest.value = makeSnapshot()   // 基线落定后刷新 latest（spec §7.2 第 6 项：latest 为当前快照，供反显）
     } catch {
       // 基线拉取失败按 0 基线继续：全量快照口径下服务端 MAX 保护兜底
     }
@@ -1501,6 +1502,8 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
   }
 }
 ```
+
+> **Task 4 修正记录（2026-09-23 评审回写）**：计划原文实现 + 原文测试实测 11/12——`latest 暴露当前快照` 用例在基线 GET 落定后拿到的仍是构造时零基线旧快照（原 `latest` 仅在 `emitAndReport` 时更新）；已在 `loadBaseline` 基线赋值后补 `latest.value = makeSnapshot()` 一行，对齐 spec §7.2 第 6 项「latest=当前快照」，与 commit `6d2c0fe` 一致，该行不触发上报、不调 onReport、不影响其余 11 用例。
 
 - [ ] 4.5 运行测试，确认通过
 
