@@ -2785,6 +2785,8 @@ test('续播反显与 video.js 控制条（.vjs-play-button / .vjs-playback-rate
 })
 ```
 
+> **Task 7 修正记录（2026-09-23 执行回写）**：计划 7.2 用例 5 两个 `.vjs-*` 选择器与 video.js 8.24.1 实际 DOM 不符——① 控制条播放键类名为 `vjs-play-control`（video.es.js:12032），`vjs-play-button` 在整个 dist 中 0 次出现，首跑实测 4/5（error-context 快照已见 button "Play" 正常渲染，纯选择器不匹配）；② video.js 8 `MenuButton` 自包裹：外层 div（`buildWrapperCSSClass`）与内层 button（`buildCSSClass`）同持 `vjs-playback-rate`（video.es.js:17762/17765），`.vjs-playback-rate` 定位到 2 个元素。已改为 `.vjs-play-control` 与 `button.vjs-playback-rate`（命中唯一内层按钮，不耦合包裹实现；`.vjs-big-play-button` 虽也能命中但属居中覆盖层、非注释所指「控制条元素」），断言语义（控制条两控件各存在一个）不变，实测 5/5（37.0s）；同库复跑一轮仍 5/5（35.6s，e2e.db 累计 24 行、每轮唯一 userid 隔离，幂等实证）。
+
 - [ ] 7.3 运行 e2e（先确保 3000/5173 端口空闲）
 
 ```bash
