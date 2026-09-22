@@ -5,7 +5,10 @@
  *     unmount 补报+移除全部监听
  *   - hidden 期间停留时钟冻结、无任何定时器上报
  *   - 心跳失败静默不重试；pause/resume/reportNow；onReport 回调
- *   - createDefaultReporter：sendBeacon 可用走 beacon、不可用 fallback fetch keepalive
+ *   - 基线 GET 与首跳竞态：首跳零基线+增量，基线落定后快照自纠（服务端 MAX 自愈）
+ *   - onReport 在 unmount 补报路径抛错不阻断卸载清理（interval 停 + 三监听移除）
+ *   - createDefaultReporter：sendBeacon 可用走 beacon、不可用 fallback fetch keepalive；
+ *     heartbeat fetch 带 keepalive（页面回收不取消 hidden 中 reportNow 的快照）
  * 运行命令：npx vitest run src/hooks/__tests__/usePlayRecord.test.ts
  * 前置条件：无需起后端（fetch 以 stub 返回历史基线零值/固定基线）；jsdom 环境由 vite.config.ts test.environment 提供
  */
@@ -132,6 +135,31 @@ describe('心跳调度与全量快照', () => {
     expect(heartbeat).toHaveBeenCalledTimes(2)       // 失败后照常进入下一跳（全量快照自愈口径）
     wrapper.unmount()
   })
+
+  it('基线 GET >15s 才落定：首跳以零基线+增量上报，落定后快照自纠为基线+增量', async () => {
+    const { reporter, mocks } = makeMockReporter()
+    let resolveBaseline!: (value: { ok: boolean; json: () => Promise<typeof BASELINE> }) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean; json: () => Promise<typeof BASELINE> }>((resolve) => {
+          resolveBaseline = resolve
+        })
+    )
+    const { wrapper, handle } = mountHook(makeSource(3, 7), reporter)
+
+    await vi.advanceTimersByTimeAsync(15000)         // 首跳先于基线落定：零基线 + 会话增量（预期行为）
+    expect(mocks.heartbeat).toHaveBeenCalledTimes(1)
+    expect(mocks.heartbeat.mock.calls[0][0]).toMatchObject({ played_sec: 3, stay_sec: 15 })
+
+    resolveBaseline({ ok: true, json: async () => ({ ...BASELINE }) })
+    await vi.advanceTimersByTimeAsync(0)             // 基线落定：latest 自纠为 基线 + 累计增量
+    expect(handle.latest.value).toMatchObject({ played_sec: 13, stay_sec: 115 })
+
+    await vi.advanceTimersByTimeAsync(15000)         // 下一跳恢复全量快照（服务端 MAX 兜底自愈）
+    expect(mocks.heartbeat).toHaveBeenCalledTimes(2)
+    expect(mocks.heartbeat.mock.calls[1][0]).toMatchObject({ played_sec: 13, stay_sec: 130 })
+    wrapper.unmount()
+  })
 })
 
 describe('退出矩阵（全部不由定时器触发）', () => {
@@ -188,6 +216,25 @@ describe('退出矩阵（全部不由定时器触发）', () => {
     setVisibility('hidden')
     expect(mocks.beacon).toHaveBeenCalledTimes(1)
   })
+
+  it('onReport 在 unmount 补报路径抛错：清理仍先完成（interval 停 + 三监听移除）', async () => {
+    const { reporter, mocks } = makeMockReporter()
+    const onReport = vi.fn(() => {
+      throw new Error('onReport boom')
+    })
+    const { wrapper } = mountHook(makeSource(5, 9), reporter, onReport)
+
+    await vi.advanceTimersByTimeAsync(0)
+    wrapper.unmount()                               // 补报路径上 onReport 同步抛错
+
+    await vi.advanceTimersByTimeAsync(60000)         // interval 已停：无任何定时器上报（硬约束）
+    expect(mocks.heartbeat).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new Event('pagehide'))      // 三监听已移除：不再补报
+    setVisibility('hidden')
+    expect(mocks.beacon).toHaveBeenCalledTimes(1)    // 仅 unmount 补报那一次（补报先于清理时抛错会跳过全部清理）
+    expect(mocks.beacon.mock.calls[0][0]).toMatchObject({ user_id: 'u1', content_id: 'c1' })
+  })
 })
 
 describe('手动控制与返回值', () => {
@@ -228,6 +275,13 @@ describe('createDefaultReporter（默认上报通道）', () => {
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
     expect(JSON.parse(String(init.body))).toMatchObject({ user_id: 'u', content_id: 'c' })
+  })
+
+  it('heartbeat：fetch 带 keepalive: true（hidden 中 ended→reportNow 的丢报窗口加固）', async () => {
+    const reporter = createDefaultReporter()
+    await reporter.heartbeat({ user_id: 'u', content_id: 'c', played_sec: 1, position: 1, stay_sec: 1, client_ts: 1 })
+    const init = fetchMock.mock.calls[0][1] as RequestInit & { keepalive?: boolean }
+    expect(init.keepalive).toBe(true)
   })
 
   it('beacon：sendBeacon 可用且成功时走 sendBeacon，不走 fetch', () => {

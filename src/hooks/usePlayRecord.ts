@@ -47,7 +47,7 @@ const HEARTBEAT_URL = '/api/records/heartbeat'
 
 /**
  * 默认 Reporter（spec §7.1 扩展点2 默认实现）：
- * - heartbeat：fetch POST JSON
+ * - heartbeat：fetch POST JSON + keepalive（hidden 中 ended→reportNow 走本通道，页面回收不取消请求）
  * - beacon：navigator.sendBeacon(Blob type: application/json) → 失败/不可用 fallback fetch keepalive（spec §9）
  */
 export function createDefaultReporter(): Reporter {
@@ -56,7 +56,8 @@ export function createDefaultReporter(): Reporter {
       await fetch(HEARTBEAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        keepalive: true
       })
     },
     beacon(payload: HeartbeatPayload): void {
@@ -186,12 +187,18 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
 
   onBeforeUnmount(() => {
     if (disposed) return
-    emitAndReport('beacon')                // 路由跳转补报（默认实现 sendBeacon→fetch keepalive fallback）
+    // 先清理再补报（质量审加固）：补报路径（getSnapshot/onReport）抛错时 interval 与三监听仍必被拆除，
+    // 「退出页面后不得再由定时器触发上报」为硬约束；beacon 通道不受 disposed 守卫影响，清理后照常直发
     disposed = true
     stopTimer()
     document.removeEventListener('visibilitychange', onVisibilityChange)
     window.removeEventListener('pagehide', onPageExit)
     window.removeEventListener('beforeunload', onPageExit)
+    try {
+      emitAndReport('beacon')              // 路由跳转补报（默认实现 sendBeacon→fetch keepalive fallback）
+    } catch {
+      // 补报组装抛错静默：清理已完成，全量快照口径下次覆盖自愈
+    }
   })
 
   void loadBaseline()
