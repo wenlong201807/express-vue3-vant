@@ -5,8 +5,8 @@
 
 | # | 文件路径 | 测试类型 | 功能备注 | 执行命令 | 前置条件 | 预期结果 |
 |---|---|---|---|---|---|---|
-| 1 | `server/__tests__/db.test.js` | node:test 接口 | 建表成功（contents/play_records 按 spec §5）；种子 1 视频 + 2 图文；文件库重复初始化幂等 | `npm run test:server` | `npm install` 已执行；用例自建内存/临时库，不触碰 `data/app.db` | `# tests 3` / `# pass 3` / `# fail 0` |
-| 2 | `server/__tests__/records.test.js` | node:test 接口 | heartbeat INSERT/UPDATE、MAX 幂等重发不变、乱序不回退、position 覆盖、视频/图文 95% 判完与永久性、空记录零值默认、必传 400、未知内容 404、contents 三态聚合、缺省 guest | `npm run test:server` | 同上；每个用例独立内存库 + 随机端口 | `# tests 14`（含 #1）/ `# pass 14` / `# fail 0` |
+| 1 | `server/__tests__/db.test.js` | node:test 接口 | 建表成功（contents/play_records 按 spec §5）；种子 1 视频 + 2 图文；文件库重复初始化幂等 | `node --test server/__tests__/db.test.js` | `npm install` 已执行；用例自建内存/临时库，不触碰 `data/app.db` | `# tests 3` / `# pass 3` / `# fail 0` |
+| 2 | `server/__tests__/records.test.js` | node:test 接口 | heartbeat INSERT/UPDATE、MAX 幂等重发不变、乱序不回退、position 覆盖、视频/图文 95% 判完与永久性、空记录零值默认、必传 400、未知内容 404、contents 三态聚合、缺省 guest | `node --test server/__tests__/records.test.js` | 同上；每个用例独立内存库 + 随机端口 | `# tests 11` / `# pass 11` / `# fail 0`（两文件合并跑用 `npm run test:server`，预期 14/14/0） |
 | 3 | `src/hooks/__tests__/usePlayRecord.test.ts` | vitest 单测 | 心跳节奏与「基线+增量」全量快照；退出矩阵四事件（hidden 停跳+beacon、visible 重启、pagehide/beforeunload beacon、unmount 补报+移除监听）；hidden 停留时钟冻结；心跳失败静默；pause/resume/reportNow；基线竞态自纠；onReport 抛错清理仍完成；默认 Reporter 的 sendBeacon 与 fetch keepalive（含 heartbeat keepalive） | `npx vitest run src/hooks/__tests__/usePlayRecord.test.ts` | `npm install`；无需起后端（fetch stub） | `Tests  15 passed (15)` |
 | 4 | `src/hooks/__tests__/videoSource.test.ts` | vitest 单测 | timeupdate 差值累加；差值 ≥1s seek 不计；负差值回拖不计；2x 倍速 0.5s 差值正常计入；destroy 移除监听 | `npx vitest run src/hooks/__tests__/videoSource.test.ts` | `npm install`；Player 为测试替身 | `Tests  5 passed (5)` |
 | 5 | `src/hooks/__tests__/articleSource.test.ts` | vitest 单测 | 滚动百分比换算（向下取整、0-100 收敛）；200ms 节流首沿+尾沿；playedDelta 恒 0；不可滚动容器 position=100；destroy 清理 | `npx vitest run src/hooks/__tests__/articleSource.test.ts` | `npm install`；容器为测试替身；fake timers | `Tests  5 passed (5)` |
