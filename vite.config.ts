@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
@@ -8,5 +8,9 @@ export default defineConfig({
       '/api': 'http://localhost:3000',
       '/source': 'http://localhost:3000'
     }
+  },
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts']
   }
 })

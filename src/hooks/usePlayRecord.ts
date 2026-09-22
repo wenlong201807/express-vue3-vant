@@ -1,0 +1,217 @@
+import { onBeforeUnmount, ref, unref, type MaybeRef, type Ref } from 'vue'
+
+/** 心跳/补报共用 payload（字段与 spec §6.1 请求 body 一致） */
+export interface HeartbeatPayload {
+  user_id: string
+  content_id: string
+  played_sec: number
+  position: number
+  stay_sec: number
+  client_ts: number
+}
+
+/** 扩展点 1：采集适配器（本次会话内累计） */
+export interface PlaySource {
+  getSnapshot(): { playedDelta: number; position: number }
+}
+
+/** 扩展点 2：上报通道 */
+export interface Reporter {
+  heartbeat(payload: HeartbeatPayload): Promise<void>   // 心跳通道
+  beacon(payload: HeartbeatPayload): void               // 退出补报通道（sendBeacon，失败 fallback fetch keepalive）
+}
+
+export interface PlayRecordOptions {
+  contentId: MaybeRef<string>
+  userId: MaybeRef<string>
+  interval?: number                 // 心跳间隔 ms，默认 15000
+  source: PlaySource                // 扩展点1：采集适配器
+  reporter?: Reporter               // 扩展点2：上报通道，默认实现 fetch 心跳 + sendBeacon 退出补报；测试可注入 mock
+  onReport?: (payload: HeartbeatPayload) => void
+}
+
+/** 带释放语义的采集源（videoSource / articleSource 实际返回类型） */
+export interface DisposablePlaySource extends PlaySource {
+  destroy(): void
+}
+
+/** hook 返回值（spec §7.2 第 6 项） */
+export interface PlayRecordHandle {
+  pause(): void
+  resume(): void
+  reportNow(): void
+  latest: Ref<HeartbeatPayload>
+}
+
+const HEARTBEAT_URL = '/api/records/heartbeat'
+
+/**
+ * 默认 Reporter（spec §7.1 扩展点2 默认实现）：
+ * - heartbeat：fetch POST JSON
+ * - beacon：navigator.sendBeacon(Blob type: application/json) → 失败/不可用 fallback fetch keepalive（spec §9）
+ */
+export function createDefaultReporter(): Reporter {
+  return {
+    async heartbeat(payload: HeartbeatPayload): Promise<void> {
+      await fetch(HEARTBEAT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+    },
+    beacon(payload: HeartbeatPayload): void {
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.sendBeacon === 'function' &&
+        navigator.sendBeacon(HEARTBEAT_URL, blob)
+      ) {
+        return
+      }
+      void fetch(HEARTBEAT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(() => {
+        // 补报失败静默：服务端 MAX 幂等 + 下次全量快照覆盖自愈（spec §7.2 第 5 项）
+      })
+    }
+  }
+}
+
+interface Baseline {
+  played_sec: number
+  position: number
+  stay_sec: number
+  finished: number
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000
+}
+
+export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
+  const interval = options.interval ?? 15000
+  const reporter = options.reporter ?? createDefaultReporter()
+  const source = options.source
+
+  let baseline: Baseline = { played_sec: 0, position: 0, stay_sec: 0, finished: 0 }
+  let staySessionMs = 0                    // 本次会话内可见期间累计墙钟 ms（hidden 冻结）
+  let visibleSince: number | null = document.visibilityState === 'visible' ? Date.now() : null
+  let timerId: ReturnType<typeof setInterval> | null = null
+  let manualPaused = false
+  let disposed = false
+
+  const latest = ref<HeartbeatPayload>(makeSnapshot())
+
+  function currentStaySessionMs(): number {
+    return visibleSince === null ? staySessionMs : staySessionMs + (Date.now() - visibleSince)
+  }
+
+  /** 全量快照 = 历史基线（played/stay）+ 会话增量 + 采集源当前位置（spec §7.2 第 2 项） */
+  function makeSnapshot(): HeartbeatPayload {
+    const snap = source.getSnapshot()
+    return {
+      user_id: unref(options.userId),
+      content_id: unref(options.contentId),
+      played_sec: round3(baseline.played_sec + snap.playedDelta),
+      position: snap.position,
+      stay_sec: round3(baseline.stay_sec + currentStaySessionMs() / 1000),
+      client_ts: Date.now()
+    }
+  }
+
+  function emitAndReport(channel: 'heartbeat' | 'beacon'): void {
+    const payload = makeSnapshot()
+    latest.value = payload
+    if (channel === 'heartbeat') {
+      reporter.heartbeat(payload).catch(() => {
+        // 心跳失败静默、不重试（spec §7.2 第 5 项）
+      })
+    } else {
+      reporter.beacon(payload)
+    }
+    options.onReport?.(payload)
+  }
+
+  function startTimer(): void {
+    if (disposed || manualPaused || timerId !== null) return
+    if (document.visibilityState !== 'visible') return  // hidden 期间不启动（由 visible 事件重启）
+    timerId = setInterval(() => emitAndReport('heartbeat'), interval)
+  }
+
+  function stopTimer(): void {
+    if (timerId !== null) {
+      clearInterval(timerId)
+      timerId = null
+    }
+  }
+
+  /** 历史基线（spec §7.2 第 1 项）：挂载时 GET /api/records/:contentId */
+  async function loadBaseline(): Promise<void> {
+    const url = `/api/records/${encodeURIComponent(unref(options.contentId))}?user_id=${encodeURIComponent(unref(options.userId))}`
+    try {
+      const res = await fetch(url)
+      if (!res.ok) return
+      const data = (await res.json()) as Partial<Baseline>
+      baseline = {
+        played_sec: data.played_sec ?? 0,
+        position: data.position ?? 0,
+        stay_sec: data.stay_sec ?? 0,
+        finished: data.finished ?? 0
+      }
+      latest.value = makeSnapshot()   // 基线落定后刷新 latest（spec §7.2 第 6 项：latest 为当前快照，供反显）
+    } catch {
+      // 基线拉取失败按 0 基线继续：全量快照口径下服务端 MAX 保护兜底
+    }
+  }
+
+  /** 退出矩阵（spec §7.2 第 4 项，全部事件驱动、不由定时器触发） */
+  function onVisibilityChange(): void {
+    if (document.visibilityState === 'visible') {
+      visibleSince = Date.now()            // 停留时钟继续
+      startTimer()                         // 重启 interval
+    } else {
+      staySessionMs = currentStaySessionMs() // 冻结停留时钟
+      visibleSince = null
+      stopTimer()                          // 停 interval
+      emitAndReport('beacon')              // beacon 补报最后快照
+    }
+  }
+
+  function onPageExit(): void {
+    emitAndReport('beacon')                // pagehide / beforeunload（iOS 企业微信 WebView 关键路径）
+  }
+
+  onBeforeUnmount(() => {
+    if (disposed) return
+    emitAndReport('beacon')                // 路由跳转补报（默认实现 sendBeacon→fetch keepalive fallback）
+    disposed = true
+    stopTimer()
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    window.removeEventListener('pagehide', onPageExit)
+    window.removeEventListener('beforeunload', onPageExit)
+  })
+
+  void loadBaseline()
+  startTimer()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('pagehide', onPageExit)
+  window.addEventListener('beforeunload', onPageExit)
+
+  return {
+    pause() {
+      manualPaused = true
+      stopTimer()
+    },
+    resume() {
+      manualPaused = false
+      startTimer()
+    },
+    reportNow() {
+      if (!disposed) emitAndReport('heartbeat')   // 供视频 ended 事件调用（spec §7.2 第 6 项）
+    },
+    latest
+  }
+}
