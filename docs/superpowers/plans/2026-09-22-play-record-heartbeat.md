@@ -98,7 +98,7 @@ playwright-report/
     "dev:client": "vite",
     "dev": "concurrently -n server,client -c yellow,cyan \"npm:dev:server\" \"npm:dev:client\"",
     "build": "vue-tsc --noEmit && vite build",
-    "test:server": "node --test server/__tests__/",
+    "test:server": "node --test \"server/__tests__/*.test.js\"",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "smoke": "bash scripts/smoke.sh"
@@ -126,6 +126,8 @@ playwright-report/
   }
 }
 ```
+
+> 注意：`test:server` 必须用引号包裹的 glob 写法——node 24 的 `--test` 位置参数按 glob 解释，裸目录 `server/__tests__/` 会报 `Cannot find module`（实测 node v24.13.1）。
 
 - [ ] 1.3 安装依赖
 
@@ -411,7 +413,7 @@ test('文件库重复初始化幂等：种子不重复插入', () => {
 npm run test:server
 ```
 
-预期输出（红灯特征）：`Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../server/db.js'`，末尾统计 `# tests 3` / `# fail 3`
+预期输出（红灯特征）：`Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../server/db.js'`；整文件加载失败只记 1 fail（非 3 用例各记 1），末尾统计 `# tests 1` / `# fail 1`（node 24 实测）
 
 - [ ] 2.3 最小实现 `server/db.js`
 
