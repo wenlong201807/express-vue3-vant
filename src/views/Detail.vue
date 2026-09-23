@@ -15,6 +15,8 @@ const userId = typeof route.query.userid === 'string' ? route.query.userid : 'gu
 const contentId = route.params.id
 
 const content = ref(null)
+// 加载失败态：getContents/getRecord reject 时显示失败空态，替代骨架屏永挂
+const loadFailed = ref(false)
 // 纯展示：服务端 position（图文顶部信息条「已读 N%」），不参与任何上报
 const initialPosition = ref(0)
 const videoEl = ref(null)
@@ -45,62 +47,77 @@ const switchable = createSwitchableSource()
 const handle = usePlayRecord({ contentId, userId, source: switchable.source })
 
 onMounted(async () => {
-  const items = await getContents(userId)
-  const item = items.find((i) => i.content.id === contentId)
-  if (!item) return
-  const record = await getRecord(contentId, userId)
-  initialPosition.value = record.position
-  content.value = item.content
-  await nextTick()
-
-  if (item.content.type === 'video') {
-    const el = videoEl.value
-    if (!el) return
-    // spec §8.2：video.js 初始化，playbackRates 原生倍速菜单，控制条原生 seek
-    player = videojs(el, {
-      controls: true,
-      playbackRates: [0.5, 1, 1.25, 1.5, 2],
-      sources: [{ src: item.content.video_url ?? '', type: 'video/mp4' }],
-      // 常驻控制条：禁用无操作自动隐藏（时间/进度条一直可见）
-      inactivityTimeout: 0,
-      // 时间显示：当前播放位置 / 视频总时长（替代默认的剩余时间 -1:00 格式）
-      controlBar: {
-        remainingTimeDisplay: false,
-        currentTimeDisplay: true,
-        durationDisplay: true
-      }
-    })
-    // 续播反显：ready 后 currentTime(服务端 position)
-    player.ready(() => {
-      if (record.position > 0) {
-        player.currentTime(record.position)
-      }
-    })
-    // 播完立即上报一次（spec §7.2 reportNow 用途）
-    player.on('ended', () => handle.reportNow())
-    const source = videoSource(player)
-    activeSource = source
-    switchable.attach(source)
-  } else {
-    const box = articleBox.value
-    if (!box) return
-    const source = articleSource(box)
-    activeSource = source
-    switchable.attach(source)
+  try {
+    const items = await getContents(userId)
+    const item = items.find((i) => i.content.id === contentId)
+    if (!item) return
+    const record = await getRecord(contentId, userId)
+    initialPosition.value = record.position
+    content.value = item.content
     await nextTick()
-    // 进入页面按服务端 position 百分比滚动定位（spec §8.2 article 形态）
-    const scrollable = box.scrollHeight - box.clientHeight
-    if (scrollable > 0 && record.position > 0) {
-      box.scrollTop = (record.position / 100) * scrollable
+
+    if (item.content.type === 'video') {
+      const el = videoEl.value
+      // 竞态护栏：卸载后 Vue 同步置空模板 ref，晚到的 await 续体在此拦截（不创建无人 dispose 的 player）
+      if (!el) return
+      // spec §8.2：video.js 初始化，playbackRates 原生倍速菜单，控制条原生 seek
+      player = videojs(el, {
+        controls: true,
+        playbackRates: [0.5, 1, 1.25, 1.5, 2],
+        sources: [{ src: item.content.video_url ?? '', type: 'video/mp4' }],
+        // 常驻控制条：禁用无操作自动隐藏（时间/进度条一直可见）
+        inactivityTimeout: 0,
+        // 时间显示：当前播放位置 / 视频总时长（替代默认的剩余时间 -1:00 格式）
+        controlBar: {
+          remainingTimeDisplay: false,
+          currentTimeDisplay: true,
+          durationDisplay: true
+        }
+      })
+      // 续播反显：ready 后 currentTime(服务端 position)
+      player.ready(() => {
+        if (record.position > 0) {
+          player.currentTime(record.position)
+        }
+      })
+      // 播完立即上报一次（spec §7.2 reportNow 用途）
+      player.on('ended', () => handle.reportNow())
+      const source = videoSource(player)
+      activeSource = source
+      switchable.attach(source)
+    } else {
+      const box = articleBox.value
+      // 竞态护栏：同上
+      if (!box) return
+      const source = articleSource(box)
+      activeSource = source
+      switchable.attach(source)
+      await nextTick()
+      // 进入页面按服务端 position 百分比滚动定位（spec §8.2 article 形态）
+      const scrollable = box.scrollHeight - box.clientHeight
+      if (scrollable > 0 && record.position > 0) {
+        box.scrollTop = (record.position / 100) * scrollable
+      }
     }
+  } catch {
+    // 加载失败：显示失败空态（hook 侧已有零值兜底与心跳自愈，此分支只管 UI）
+    loadFailed.value = true
   }
 })
 
 onBeforeUnmount(() => {
-  activeSource?.destroy()
+  // 对称加固（与 hook 侧 usePlayRecord 卸载加固同构）：
+  // destroy 抛错不得阻断 dispose——video.js 的全局注册表 Player.players[id_]
+  // 只有 dispose 才注销，跳过即泄漏（跨路由累积）
+  try {
+    activeSource?.destroy()
+  } catch {
+    // 吞掉销毁异常，保证 dispose 必达
+  }
   activeSource = null
-  if (player) {
-    player.dispose()   // 释放 video.js 资源，与 hook 清理联动（spec §8.2）
+  try {
+    player?.dispose()   // 释放 video.js 资源并注销全局注册表（spec §8.2）
+  } finally {
     player = null
   }
 })
@@ -110,10 +127,13 @@ onBeforeUnmount(() => {
   <div class="detail">
     <van-nav-bar :title="content?.title ?? '详情'" left-arrow @click-left="router.back()" />
 
-    <!-- 加载态：纸底骨架（content 为空时，与原「加载中」占位同语义） -->
-    <div v-if="!content" class="detail-skeleton">
+    <!-- 加载态：纸底骨架（content 为空且未失败时） -->
+    <div v-if="!content && !loadFailed" class="detail-skeleton">
       <van-skeleton title :row="4" />
     </div>
+
+    <!-- 加载失败空态：getContents/getRecord reject 时的兜底（替代骨架屏永挂） -->
+    <van-empty v-else-if="loadFailed" description="加载失败，请返回重试" />
 
     <template v-else>
       <!-- 视频型：播放器卡片（圆角裁切）+ 信息卡 -->

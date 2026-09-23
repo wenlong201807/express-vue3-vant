@@ -1,9 +1,11 @@
 /**
- * 功能说明：Detail.vue 详情页组件测试（video / article 二态）
+ * 功能说明：Detail.vue 详情页组件测试（video / article / 加载失败 三态，7 用例）
  *   - video：videojs 以 controls + playbackRates [0.5,1,1.25,1.5,2] + mp4 source 初始化；
  *     ready 后 currentTime(服务端 position) 续播反显；ended 触发 reportNow（POST heartbeat）；
- *     unmount 时 player.dispose 被调用
+ *     unmount 时 player.dispose 被调用；destroy 抛错时 dispose 仍被调用（对称加固，
+ *     防 video.js 全局注册表 Player.players 泄漏）
  *   - article：v-html 渲染正文；进入页面按服务端 position 百分比定位滚动容器
+ *   - 加载失败：getContents reject 时显示「加载失败」空态（骨架屏不永挂），不初始化播放器
  * 运行命令：npx vitest run src/views/__tests__/Detail.test.js
  * 前置条件：无需起后端；api/record 与 video.js 均为 mock；fetch 以 stub 提供 hook 基线；
  *   article 用例通过覆写 HTMLElement.prototype 的 scrollHeight/clientHeight 提供布局尺寸
@@ -151,6 +153,19 @@ describe('Detail - video 形态', () => {
     wrapper = null
     expect(fakePlayer.dispose).toHaveBeenCalledTimes(1)
   })
+
+  it('unmount 对称加固：source.destroy 抛错时 player.dispose 仍被调用（防全局注册表泄漏）', async () => {
+    await mountDetail('/detail/video-7092?userid=u9')
+    // videoSource.destroy 内部调 player.off('timeupdate')——让 off 抛错模拟 destroy 失败
+    fakePlayer.off.mockImplementationOnce(() => {
+      throw new Error('destroy boom')
+    })
+    expect(() => {
+      wrapper.unmount()
+      wrapper = null
+    }).not.toThrow()
+    expect(fakePlayer.dispose).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('Detail - article 形态', () => {
@@ -175,5 +190,16 @@ describe('Detail - article 形态', () => {
     const box = wrapper.find('.article-box').element
     expect(box.innerHTML).toContain('正文段落')
     expect(box.scrollTop).toBe(300)    // 60% × (1000 - 500)
+  })
+})
+
+describe('Detail - 加载失败态', () => {
+  it('getContents reject：显示「加载失败」空态（骨架屏不永挂），不初始化播放器', async () => {
+    getContentsMock.mockRejectedValue(new Error('network down'))
+    await mountDetail('/detail/video-7092?userid=u9')
+    // 失败空态可见（van-empty 文案）
+    expect(wrapper.text()).toContain('加载失败')
+    // 未创建播放器、无 unhandled rejection 冒泡（onMounted 兜底 catch）
+    expect(videojsFactory).not.toHaveBeenCalled()
   })
 })

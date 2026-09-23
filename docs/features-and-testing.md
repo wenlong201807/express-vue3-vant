@@ -66,7 +66,7 @@
 | 编号 | 功能 | 一句话说明 | 实现位置（文件） | 验证方式（对应测试/接口） |
 |------|------|------------|------------------|---------------------------|
 | F1 | 单仓双进程 dev | `npm run dev` 以 concurrently 并起 Express(:3000) 与 Vite(:5173)；Vite 将 `/api`、`/source` 代理到 3000；`/source` 同时为静态视频目录 | `package.json`、`vite.config.mjs`、`server/index.js` | 手动：`npm run dev` 后访问 5173；`第二部分 §4` |
-| F2 | 三层测试 + 冒烟 | 后端 node:test 接口测试（15）/ vitest hook 与组件单测（33）/ Playwright e2e（5）/ curl 冒烟，四类共九项资产 | `package.json` scripts + 各测试文件 | `第二部分 §2`、`§3` 全量回归 |
+| F2 | 三层测试 + 冒烟 | 后端 node:test 接口测试（15）/ vitest hook 与组件单测（35）/ Playwright e2e（5）/ curl 冒烟，四类共九项资产 | `package.json` scripts + 各测试文件 | `第二部分 §2`、`§3` 全量回归 |
 | F3 | 测试资产归档索引 | 九项资产在索引中逐项登记路径、覆盖点、执行命令、前置条件、预期结果，任何人可二次执行 | `docs/testing/README.md` | 按索引逐项复制命令执行（即 `第二部分 §2`） |
 
 **功能条目合计：29 条**（A6 + B6 + C7 + D2 + E5 + F3）。
@@ -172,7 +172,7 @@ npm run smoke
 
 ```
 npm run test:server   →  # tests 15  # pass 15  # fail 0
-npm run test:unit     →  Tests  33 passed (33)
+npm run test:unit     →  Tests  35 passed (35)
 npm run test:e2e      →  5 passed
 npm run smoke         →  SMOKE OK
 ```

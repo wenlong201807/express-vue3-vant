@@ -11,7 +11,7 @@
 | 4 | `src/hooks/__tests__/videoSource.test.js` | vitest 单测 | timeupdate 差值累加；差值 ≥1s seek 不计；负差值回拖不计；2x 倍速 0.5s 差值正常计入；destroy 移除监听 | `npx vitest run src/hooks/__tests__/videoSource.test.js` | `npm install`；Player 为测试替身 | `Tests  5 passed (5)` |
 | 5 | `src/hooks/__tests__/articleSource.test.js` | vitest 单测 | 滚动百分比换算（向下取整、0-100 收敛）；200ms 节流首沿+尾沿；playedDelta 恒 0；不可滚动容器 position=100；destroy 清理 | `npx vitest run src/hooks/__tests__/articleSource.test.js` | `npm install`；容器为测试替身；fake timers | `Tests  5 passed (5)` |
 | 6 | `src/views/__tests__/List.test.js` | vitest 组件 | Vant Cell+Tag 三态（default 灰/primary 蓝/success 绿）；副标题百分比文案；点击跳 `/detail/:id?userid=`（缺省 guest） | `npx vitest run src/views/__tests__/List.test.js` | `npm install`；api/record 为 mock | `Tests  3 passed (3)` |
-| 7 | `src/views/__tests__/Detail.test.js` | vitest 组件 | video：videojs 初始化参数（playbackRates [0.5,1,1.25,1.5,2]）、ready 续播反显、ended 即时上报、unmount dispose；article：v-html 渲染与 position 百分比定位 | `npx vitest run src/views/__tests__/Detail.test.js` | `npm install`；video.js 与 api/record 为 mock | `Tests  5 passed (5)` |
+| 7 | `src/views/__tests__/Detail.test.js` | vitest 组件 | video：videojs 初始化参数（playbackRates [0.5,1,1.25,1.5,2]）、ready 续播反显、ended 即时上报、unmount dispose、destroy 抛错时 dispose 仍被调用（防 video.js 全局注册表泄漏）；article：v-html 渲染与 position 百分比定位；加载失败：getContents reject 显示失败空态且不初始化播放器 | `npx vitest run src/views/__tests__/Detail.test.js` | `npm install`；video.js 与 api/record 为 mock | `Tests  7 passed (7)` |
 | 8 | `e2e/play-record.e2e.spec.js` | playwright e2e | 真实前后端：播放 17s 三指标经 HTTP 校验；hidden 补报且无定时器上报；路由跳转补报；列表三态；续播反显（currentTime=服务端 position）；.vjs-play-control/button.vjs-playback-rate 存在 | `npm run test:e2e` | 本机已装 Google Chrome（config channel:'chrome'）；3000/5173 端口空闲（webServer 自动起停） | `5 passed` |
 | 9 | `scripts/smoke.sh` | curl 冒烟 | 三接口串联：上报/幂等重发/乱序不回退/MAX+position 覆盖/零值默认/三态聚合；可重复执行 | `npm run smoke` | 后端已启动：`npm run dev:server` | 末行输出 `SMOKE OK`（重复执行同样通过） |
 
@@ -24,4 +24,4 @@ npm run test:server && npm run test:unit && npm run test:e2e && npm run smoke
 前置：`npm run dev:server` 保持运行（smoke 依赖；e2e 会自动管理自己的端口，
 执行 e2e 前先停掉手工 dev 进程，结束后再重启 dev:server 跑 smoke）。
 
-预期：server `# pass 15` → unit `Tests  33 passed (33)` → e2e `5 passed` → smoke `SMOKE OK`。
+预期：server `# pass 15` → unit `Tests  35 passed (35)` → e2e `5 passed` → smoke `SMOKE OK`。
