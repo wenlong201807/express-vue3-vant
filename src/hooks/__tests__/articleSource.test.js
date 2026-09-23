@@ -4,31 +4,24 @@
  *   - 节流约 200ms：窗口内首次立即计算，尾沿定时器补最新位置（最后一段滚动不丢）
  *   - playedDelta 恒 0；不可滚动容器（分母 ≤ 0）position = 100
  *   - destroy 移除 scroll 监听并清理尾沿定时器
- * 运行命令：npx vitest run src/hooks/__tests__/articleSource.test.ts
+ * 运行命令：npx vitest run src/hooks/__tests__/articleSource.test.js
  * 前置条件：无需 DOM 与后端；滚动容器以测试替身注入；vi.useFakeTimers 同时控制 Date.now 与 setTimeout
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { articleSource, type ArticleScrollTarget } from '../sources/articleSource'
+import { articleSource } from '../sources/articleSource'
 
-interface FakeContainer {
-  container: ArticleScrollTarget
-  fire: () => void
-}
-
-function makeFakeContainer(
-  init: { scrollTop?: number; scrollHeight?: number; clientHeight?: number } = {}
-): FakeContainer {
+function makeFakeContainer(init = {}) {
   const state = {
     scrollTop: init.scrollTop ?? 0,
     scrollHeight: init.scrollHeight ?? 1000,
     clientHeight: init.clientHeight ?? 500
   }
-  const listeners: Array<() => void> = []
-  const container: ArticleScrollTarget = {
+  const listeners = []
+  const container = {
     get scrollTop() {
       return state.scrollTop
     },
-    set scrollTop(v: number) {
+    set scrollTop(v) {
       state.scrollTop = v
     },
     get scrollHeight() {
@@ -37,10 +30,10 @@ function makeFakeContainer(
     get clientHeight() {
       return state.clientHeight
     },
-    addEventListener(_type: 'scroll', listener: () => void) {
+    addEventListener(_type, listener) {
       listeners.push(listener)
     },
-    removeEventListener(_type: 'scroll', listener: () => void) {
+    removeEventListener(_type, listener) {
       const i = listeners.indexOf(listener)
       if (i >= 0) listeners.splice(i, 1)
     }

@@ -1,47 +1,52 @@
-import { onBeforeUnmount, ref, unref, type MaybeRef, type Ref } from 'vue'
+import { onBeforeUnmount, ref, unref } from 'vue'
 
-/** 心跳/补报共用 payload（字段与 spec §6.1 请求 body 一致） */
-export interface HeartbeatPayload {
-  user_id: string
-  content_id: string
-  played_sec: number
-  position: number
-  stay_sec: number
-  client_ts: number
-}
+/**
+ * 心跳/补报共用 payload（字段与 spec §6.1 请求 body 一致）
+ * @typedef {object} HeartbeatPayload
+ * @property {string} user_id
+ * @property {string} content_id
+ * @property {number} played_sec
+ * @property {number} position
+ * @property {number} stay_sec
+ * @property {number} client_ts
+ */
 
-/** 扩展点 1：采集适配器（本次会话内累计） */
-export interface PlaySource {
-  getSnapshot(): { playedDelta: number; position: number }
-}
+/**
+ * 扩展点 1：采集适配器（本次会话内累计）
+ * @typedef {object} PlaySource
+ * @property {() => { playedDelta: number, position: number }} getSnapshot
+ */
 
-/** 扩展点 2：上报通道 */
-export interface Reporter {
-  heartbeat(payload: HeartbeatPayload): Promise<void>   // 心跳通道
-  beacon(payload: HeartbeatPayload): void               // 退出补报通道（sendBeacon，失败 fallback fetch keepalive）
-}
+/**
+ * 扩展点 2：上报通道
+ * @typedef {object} Reporter
+ * @property {(payload: HeartbeatPayload) => Promise<void>} heartbeat   心跳通道
+ * @property {(payload: HeartbeatPayload) => void} beacon               退出补报通道（sendBeacon，失败 fallback fetch keepalive）
+ */
 
-export interface PlayRecordOptions {
-  contentId: MaybeRef<string>
-  userId: MaybeRef<string>
-  interval?: number                 // 心跳间隔 ms，默认 15000
-  source: PlaySource                // 扩展点1：采集适配器
-  reporter?: Reporter               // 扩展点2：上报通道，默认实现 fetch 心跳 + sendBeacon 退出补报；测试可注入 mock
-  onReport?: (payload: HeartbeatPayload) => void
-}
+/**
+ * @typedef {object} PlayRecordOptions
+ * @property {import('vue').MaybeRef<string>} contentId
+ * @property {import('vue').MaybeRef<string>} userId
+ * @property {number} [interval]                 心跳间隔 ms，默认 15000
+ * @property {PlaySource} source                 扩展点1：采集适配器
+ * @property {Reporter} [reporter]               扩展点2：上报通道，默认实现 fetch 心跳 + sendBeacon 退出补报；测试可注入 mock
+ * @property {(payload: HeartbeatPayload) => void} [onReport]
+ */
 
-/** 带释放语义的采集源（videoSource / articleSource 实际返回类型） */
-export interface DisposablePlaySource extends PlaySource {
-  destroy(): void
-}
+/**
+ * 带释放语义的采集源（videoSource / articleSource 实际返回类型）
+ * @typedef {PlaySource & { destroy: () => void }} DisposablePlaySource
+ */
 
-/** hook 返回值（spec §7.2 第 6 项） */
-export interface PlayRecordHandle {
-  pause(): void
-  resume(): void
-  reportNow(): void
-  latest: Ref<HeartbeatPayload>
-}
+/**
+ * hook 返回值（spec §7.2 第 6 项）
+ * @typedef {object} PlayRecordHandle
+ * @property {() => void} pause
+ * @property {() => void} resume
+ * @property {() => void} reportNow
+ * @property {import('vue').Ref<HeartbeatPayload>} latest
+ */
 
 const HEARTBEAT_URL = '/api/records/heartbeat'
 
@@ -49,10 +54,11 @@ const HEARTBEAT_URL = '/api/records/heartbeat'
  * 默认 Reporter（spec §7.1 扩展点2 默认实现）：
  * - heartbeat：fetch POST JSON + keepalive（hidden 中 ended→reportNow 走本通道，页面回收不取消请求）
  * - beacon：navigator.sendBeacon(Blob type: application/json) → 失败/不可用 fallback fetch keepalive（spec §9）
+ * @returns {Reporter}
  */
-export function createDefaultReporter(): Reporter {
+export function createDefaultReporter() {
   return {
-    async heartbeat(payload: HeartbeatPayload): Promise<void> {
+    async heartbeat(payload) {
       await fetch(HEARTBEAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,7 +66,7 @@ export function createDefaultReporter(): Reporter {
         keepalive: true
       })
     },
-    beacon(payload: HeartbeatPayload): void {
+    beacon(payload) {
       const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
       if (
         typeof navigator !== 'undefined' &&
@@ -81,37 +87,49 @@ export function createDefaultReporter(): Reporter {
   }
 }
 
-interface Baseline {
-  played_sec: number
-  position: number
-  stay_sec: number
-  finished: number
-}
+/**
+ * @typedef {object} Baseline
+ * @property {number} played_sec
+ * @property {number} position
+ * @property {number} stay_sec
+ * @property {number} finished
+ */
 
-function round3(n: number): number {
+/**
+ * @param {number} n
+ * @returns {number}
+ */
+function round3(n) {
   return Math.round(n * 1000) / 1000
 }
 
-export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
+/**
+ * @param {PlayRecordOptions} options
+ * @returns {PlayRecordHandle}
+ */
+export function usePlayRecord(options) {
   const interval = options.interval ?? 15000
   const reporter = options.reporter ?? createDefaultReporter()
   const source = options.source
 
-  let baseline: Baseline = { played_sec: 0, position: 0, stay_sec: 0, finished: 0 }
+  let baseline = { played_sec: 0, position: 0, stay_sec: 0, finished: 0 }
   let staySessionMs = 0                    // 本次会话内可见期间累计墙钟 ms（hidden 冻结）
-  let visibleSince: number | null = document.visibilityState === 'visible' ? Date.now() : null
-  let timerId: ReturnType<typeof setInterval> | null = null
+  let visibleSince = document.visibilityState === 'visible' ? Date.now() : null
+  let timerId = null
   let manualPaused = false
   let disposed = false
 
-  const latest = ref<HeartbeatPayload>(makeSnapshot())
+  const latest = ref(makeSnapshot())
 
-  function currentStaySessionMs(): number {
+  function currentStaySessionMs() {
     return visibleSince === null ? staySessionMs : staySessionMs + (Date.now() - visibleSince)
   }
 
-  /** 全量快照 = 历史基线（played/stay）+ 会话增量 + 采集源当前位置（spec §7.2 第 2 项） */
-  function makeSnapshot(): HeartbeatPayload {
+  /**
+   * 全量快照 = 历史基线（played/stay）+ 会话增量 + 采集源当前位置（spec §7.2 第 2 项）
+   * @returns {HeartbeatPayload}
+   */
+  function makeSnapshot() {
     const snap = source.getSnapshot()
     return {
       user_id: unref(options.userId),
@@ -123,7 +141,10 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
     }
   }
 
-  function emitAndReport(channel: 'heartbeat' | 'beacon'): void {
+  /**
+   * @param {('heartbeat' | 'beacon')} channel
+   */
+  function emitAndReport(channel) {
     const payload = makeSnapshot()
     latest.value = payload
     if (channel === 'heartbeat') {
@@ -136,26 +157,29 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
     options.onReport?.(payload)
   }
 
-  function startTimer(): void {
+  function startTimer() {
     if (disposed || manualPaused || timerId !== null) return
     if (document.visibilityState !== 'visible') return  // hidden 期间不启动（由 visible 事件重启）
     timerId = setInterval(() => emitAndReport('heartbeat'), interval)
   }
 
-  function stopTimer(): void {
+  function stopTimer() {
     if (timerId !== null) {
       clearInterval(timerId)
       timerId = null
     }
   }
 
-  /** 历史基线（spec §7.2 第 1 项）：挂载时 GET /api/records/:contentId */
-  async function loadBaseline(): Promise<void> {
+  /**
+   * 历史基线（spec §7.2 第 1 项）：挂载时 GET /api/records/:contentId
+   * @returns {Promise<void>}
+   */
+  async function loadBaseline() {
     const url = `/api/records/${encodeURIComponent(unref(options.contentId))}?user_id=${encodeURIComponent(unref(options.userId))}`
     try {
       const res = await fetch(url)
       if (!res.ok) return
-      const data = (await res.json()) as Partial<Baseline>
+      const data = await res.json()
       baseline = {
         played_sec: data.played_sec ?? 0,
         position: data.position ?? 0,
@@ -169,7 +193,7 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
   }
 
   /** 退出矩阵（spec §7.2 第 4 项，全部事件驱动、不由定时器触发） */
-  function onVisibilityChange(): void {
+  function onVisibilityChange() {
     if (document.visibilityState === 'visible') {
       visibleSince = Date.now()            // 停留时钟继续
       startTimer()                         // 重启 interval
@@ -181,7 +205,7 @@ export function usePlayRecord(options: PlayRecordOptions): PlayRecordHandle {
     }
   }
 
-  function onPageExit(): void {
+  function onPageExit() {
     emitAndReport('beacon')                // pagehide / beforeunload（iOS 企业微信 WebView 关键路径）
   }
 

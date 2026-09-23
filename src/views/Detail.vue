@@ -1,10 +1,10 @@
-<script setup lang="ts">
+<script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import videojs from 'video.js'
-import { getContents, getRecord, type ContentSummary, type PlayRecordResponse } from '../api/record'
-import { usePlayRecord, type DisposablePlaySource, type PlaySource } from '../hooks/usePlayRecord'
-import { videoSource, type VideoJsPlayer } from '../hooks/sources/videoSource'
+import { getContents, getRecord } from '../api/record'
+import { usePlayRecord } from '../hooks/usePlayRecord'
+import { videoSource } from '../hooks/sources/videoSource'
 import { articleSource } from '../hooks/sources/articleSource'
 
 const route = useRoute()
@@ -12,28 +12,29 @@ const router = useRouter()
 
 // userid 读取（spec §8.3）：route.query.userid 缺省 'guest'
 const userId = typeof route.query.userid === 'string' ? route.query.userid : 'guest'
-const contentId = route.params.id as string
+const contentId = route.params.id
 
-const content = ref<ContentSummary | null>(null)
+const content = ref(null)
 // 纯展示：服务端 position（图文顶部信息条「已读 N%」），不参与任何上报
 const initialPosition = ref(0)
-const videoEl = ref<HTMLVideoElement | null>(null)
-const articleBox = ref<HTMLDivElement | null>(null)
+const videoEl = ref(null)
+const articleBox = ref(null)
 
-let player: VideoJsPlayer | null = null
-let activeSource: DisposablePlaySource | null = null
+let player = null
+let activeSource = null
 
 /**
  * 内容类型在异步加载后才可知，而 usePlayRecord 必须在 setup 内同步调用。
  * 以可切换的空采集源兜底，加载完成后 attach 真实 source（PlaySource 接口不变）。
+ * @returns {{ source: import('../hooks/usePlayRecord').PlaySource, attach: (inner: import('../hooks/usePlayRecord').DisposablePlaySource) => void }}
  */
-function createSwitchableSource(): { source: PlaySource; attach(inner: DisposablePlaySource): void } {
-  let inner: PlaySource | null = null
+function createSwitchableSource() {
+  let inner = null
   return {
     source: {
       getSnapshot: () => (inner ? inner.getSnapshot() : { playedDelta: 0, position: 0 })
     },
-    attach(next: DisposablePlaySource) {
+    attach(next) {
       inner = next
     }
   }
@@ -47,7 +48,7 @@ onMounted(async () => {
   const items = await getContents(userId)
   const item = items.find((i) => i.content.id === contentId)
   if (!item) return
-  const record: PlayRecordResponse = await getRecord(contentId, userId)
+  const record = await getRecord(contentId, userId)
   initialPosition.value = record.position
   content.value = item.content
   await nextTick()
@@ -72,7 +73,7 @@ onMounted(async () => {
     // 续播反显：ready 后 currentTime(服务端 position)
     player.ready(() => {
       if (record.position > 0) {
-        player!.currentTime(record.position)
+        player.currentTime(record.position)
       }
     })
     // 播完立即上报一次（spec §7.2 reportNow 用途）

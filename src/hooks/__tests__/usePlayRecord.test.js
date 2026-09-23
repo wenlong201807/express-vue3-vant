@@ -9,20 +9,13 @@
  *   - onReport 在 unmount 补报路径抛错不阻断卸载清理（interval 停 + 三监听移除）
  *   - createDefaultReporter：sendBeacon 可用走 beacon、不可用 fallback fetch keepalive；
  *     heartbeat fetch 带 keepalive（页面回收不取消 hidden 中 reportNow 的快照）
- * 运行命令：npx vitest run src/hooks/__tests__/usePlayRecord.test.ts
- * 前置条件：无需起后端（fetch 以 stub 返回历史基线零值/固定基线）；jsdom 环境由 vite.config.ts test.environment 提供
+ * 运行命令：npx vitest run src/hooks/__tests__/usePlayRecord.test.js
+ * 前置条件：无需起后端（fetch 以 stub 返回历史基线零值/固定基线）；jsdom 环境由 vite.config test.environment 提供
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
-import { mount, type VueWrapper } from '@vue/test-utils'
-import {
-  createDefaultReporter,
-  usePlayRecord,
-  type HeartbeatPayload,
-  type PlayRecordHandle,
-  type PlaySource,
-  type Reporter
-} from '../usePlayRecord'
+import { mount } from '@vue/test-utils'
+import { createDefaultReporter, usePlayRecord } from '../usePlayRecord'
 
 const BASELINE = {
   content_id: 'c1',
@@ -33,34 +26,25 @@ const BASELINE = {
   updated_at: ''
 }
 
-interface ReporterMocks {
-  heartbeat: ReturnType<typeof vi.fn>
-  beacon: ReturnType<typeof vi.fn>
-}
-
-function makeMockReporter(): { reporter: Reporter; mocks: ReporterMocks } {
-  const heartbeat = vi.fn(async (_payload: HeartbeatPayload) => {})
-  const beacon = vi.fn((_payload: HeartbeatPayload) => {})
+function makeMockReporter() {
+  const heartbeat = vi.fn(async (_payload) => {})
+  const beacon = vi.fn((_payload) => {})
   return { reporter: { heartbeat, beacon }, mocks: { heartbeat, beacon } }
 }
 
-function makeSource(playedDelta = 3, position = 7): PlaySource {
+function makeSource(playedDelta = 3, position = 7) {
   return { getSnapshot: () => ({ playedDelta, position }) }
 }
 
-function setVisibility(state: 'visible' | 'hidden') {
+function setVisibility(state) {
   Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
   document.dispatchEvent(new Event('visibilitychange'))
 }
 
-let fetchMock: ReturnType<typeof vi.fn>
+let fetchMock
 
-function mountHook(
-  source: PlaySource,
-  reporter: Reporter,
-  onReport?: (payload: HeartbeatPayload) => void
-): { wrapper: VueWrapper; handle: PlayRecordHandle } {
-  let handle!: PlayRecordHandle
+function mountHook(source, reporter, onReport) {
+  let handle
   const Comp = defineComponent({
     setup() {
       handle = usePlayRecord({ contentId: 'c1', userId: 'u1', interval: 15000, source, reporter, onReport })
@@ -125,7 +109,7 @@ describe('心跳调度与全量快照', () => {
     const heartbeat = vi.fn(async () => {
       throw new Error('network down')
     })
-    const beacon = vi.fn((_p: HeartbeatPayload) => {})
+    const beacon = vi.fn((_p) => {})
     const { wrapper } = mountHook(makeSource(1, 1), { heartbeat, beacon })
 
     await vi.advanceTimersByTimeAsync(0)
@@ -138,10 +122,10 @@ describe('心跳调度与全量快照', () => {
 
   it('基线 GET >15s 才落定：首跳以零基线+增量上报，落定后快照自纠为基线+增量', async () => {
     const { reporter, mocks } = makeMockReporter()
-    let resolveBaseline!: (value: { ok: boolean; json: () => Promise<typeof BASELINE> }) => void
+    let resolveBaseline
     fetchMock.mockImplementationOnce(
       () =>
-        new Promise<{ ok: boolean; json: () => Promise<typeof BASELINE> }>((resolve) => {
+        new Promise((resolve) => {
           resolveBaseline = resolve
         })
     )
@@ -271,16 +255,16 @@ describe('createDefaultReporter（默认上报通道）', () => {
     await reporter.heartbeat({ user_id: 'u', content_id: 'c', played_sec: 1, position: 2, stay_sec: 3, client_ts: 4 })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toBe('/api/records/heartbeat')
-    const init = fetchMock.mock.calls[0][1] as RequestInit
+    const init = fetchMock.mock.calls[0][1]
     expect(init.method).toBe('POST')
-    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
+    expect(init.headers['Content-Type']).toBe('application/json')
     expect(JSON.parse(String(init.body))).toMatchObject({ user_id: 'u', content_id: 'c' })
   })
 
   it('heartbeat：fetch 带 keepalive: true（hidden 中 ended→reportNow 的丢报窗口加固）', async () => {
     const reporter = createDefaultReporter()
     await reporter.heartbeat({ user_id: 'u', content_id: 'c', played_sec: 1, position: 1, stay_sec: 1, client_ts: 1 })
-    const init = fetchMock.mock.calls[0][1] as RequestInit & { keepalive?: boolean }
+    const init = fetchMock.mock.calls[0][1]
     expect(init.keepalive).toBe(true)
   })
 
@@ -290,7 +274,7 @@ describe('createDefaultReporter（默认上报通道）', () => {
     reporter.beacon({ user_id: 'u', content_id: 'c', played_sec: 1, position: 1, stay_sec: 1, client_ts: 1 })
     expect(fetchMock).not.toHaveBeenCalled()
     expect(navigator.sendBeacon).toHaveBeenCalledWith('/api/records/heartbeat', expect.any(Blob))
-    expect((navigator.sendBeacon as ReturnType<typeof vi.fn>).mock.calls[0][1]['type']).toBe('application/json')
+    expect(navigator.sendBeacon.mock.calls[0][1]['type']).toBe('application/json')
   })
 
   it('beacon：sendBeacon 不可用时 fallback fetch keepalive', async () => {
@@ -299,7 +283,7 @@ describe('createDefaultReporter（默认上报通道）', () => {
     reporter.beacon({ user_id: 'u', content_id: 'c', played_sec: 1, position: 1, stay_sec: 1, client_ts: 1 })
     await vi.advanceTimersByTimeAsync(0)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    const init = fetchMock.mock.calls[0][1] as RequestInit & { keepalive?: boolean }
+    const init = fetchMock.mock.calls[0][1]
     expect(init.keepalive).toBe(true)
     expect(init.method).toBe('POST')
   })
@@ -310,6 +294,6 @@ describe('createDefaultReporter（默认上报通道）', () => {
     reporter.beacon({ user_id: 'u', content_id: 'c', played_sec: 1, position: 1, stay_sec: 1, client_ts: 1 })
     await vi.advanceTimersByTimeAsync(0)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect((fetchMock.mock.calls[0][1] as RequestInit & { keepalive?: boolean }).keepalive).toBe(true)
+    expect(fetchMock.mock.calls[0][1].keepalive).toBe(true)
   })
 })

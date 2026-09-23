@@ -3,7 +3,7 @@
  *   - Vant Cell 列表 + Vant Tag 三态：未开始灰(default) / 继续播放蓝(primary) / 已播完绿(success)
  *   - 副标题：视频展示已播百分比与续播位置，图文展示已读百分比，未开始显示暂无播放记录
  *   - 点击跳转 /detail/:id?userid=xxx（query 缺省时透传 guest）
- * 运行命令：npx vitest run src/views/__tests__/List.test.ts
+ * 运行命令：npx vitest run src/views/__tests__/List.test.js
  * 前置条件：无需起后端（api/record 为 mock）；真实 vue-router（memory history）驱动跳转断言
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -35,7 +35,7 @@ const ITEMS = [
     record: { played_sec: 0, position: 100, stay_sec: 80, finished: 1 },
     status: 'finished'
   }
-] as const
+]
 
 describe('List.vue', () => {
   beforeEach(async () => {
@@ -43,7 +43,7 @@ describe('List.vue', () => {
     getContentsMock.mockResolvedValue([...ITEMS])
   })
 
-  async function mountList(path: string) {
+  async function mountList(path) {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [

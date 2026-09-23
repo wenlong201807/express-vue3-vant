@@ -4,14 +4,14 @@
  *     ready 后 currentTime(服务端 position) 续播反显；ended 触发 reportNow（POST heartbeat）；
  *     unmount 时 player.dispose 被调用
  *   - article：v-html 渲染正文；进入页面按服务端 position 百分比定位滚动容器
- * 运行命令：npx vitest run src/views/__tests__/Detail.test.ts
+ * 运行命令：npx vitest run src/views/__tests__/Detail.test.js
  * 前置条件：无需起后端；api/record 与 video.js 均为 mock；fetch 以 stub 提供 hook 基线；
  *   article 用例通过覆写 HTMLElement.prototype 的 scrollHeight/clientHeight 提供布局尺寸
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import { createMemoryHistory, createRouter, type Router } from 'vue-router'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import Vant from 'vant'
 import Detail from '../Detail.vue'
 
@@ -24,8 +24,8 @@ const { fakePlayer, videojsFactory } = vi.hoisted(() => {
     dispose: vi.fn()
   }
   // 参数签名对齐 videojs(el, options) 真实调用形：零参 vi.fn 会使 mock.calls 元组为 []，
-  // 导致 options 取值 calls[0][1] 处 vue-tsc 报 TS2493/TS2352（仅类型层面，运行时不变）
-  return { fakePlayer, videojsFactory: vi.fn((_el: unknown, _options?: unknown) => fakePlayer) }
+  // 导致 options 取值 calls[0][1] 越界（运行时不变）
+  return { fakePlayer, videojsFactory: vi.fn((_el, _options) => fakePlayer) }
 })
 
 const { getContentsMock, getRecordMock } = vi.hoisted(() => ({
@@ -47,7 +47,7 @@ const VIDEO_CONTENT = {
   duration_sec: 61.486,
   video_url: '/source/7092_1790088875.mp4',
   article_html: null
-} as const
+}
 
 const ARTICLE_CONTENT = {
   id: 'article-001',
@@ -56,11 +56,11 @@ const ARTICLE_CONTENT = {
   duration_sec: null,
   video_url: null,
   article_html: '<h2>标题</h2><p>正文段落</p>'
-} as const
+}
 
-let router: Router
-let wrapper: VueWrapper | null = null
-let fetchMock: ReturnType<typeof vi.fn>
+let router
+let wrapper = null
+let fetchMock
 
 beforeEach(async () => {
   fetchMock = vi.fn(async () => ({
@@ -91,7 +91,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-async function mountDetail(path: string): Promise<VueWrapper> {
+async function mountDetail(path) {
   await router.push(path)
   await router.isReady()
   wrapper = mount(Detail, { global: { plugins: [router, Vant] } })
@@ -118,13 +118,7 @@ describe('Detail - video 形态', () => {
   it('videojs 初始化：controls + playbackRates [0.5,1,1.25,1.5,2] + mp4 source + 常驻控制条与当前/总时长显示', async () => {
     await mountDetail('/detail/video-7092?userid=u9')
     expect(videojsFactory).toHaveBeenCalledTimes(1)
-    const options = videojsFactory.mock.calls[0][1] as {
-      controls: boolean
-      playbackRates: number[]
-      sources: Array<{ src: string; type: string }>
-      inactivityTimeout: number
-      controlBar: { remainingTimeDisplay: boolean; currentTimeDisplay: boolean; durationDisplay: boolean }
-    }
+    const options = videojsFactory.mock.calls[0][1]
     expect(options.controls).toBe(true)
     expect(options.playbackRates).toEqual([0.5, 1, 1.25, 1.5, 2])
     expect(options.sources).toEqual([{ src: '/source/7092_1790088875.mp4', type: 'video/mp4' }])
@@ -135,25 +129,25 @@ describe('Detail - video 形态', () => {
 
   it('续播反显：player ready 后 currentTime(服务端 position)', async () => {
     await mountDetail('/detail/video-7092?userid=u9')
-    const readyCallback = fakePlayer.ready.mock.calls[0][0] as () => void
+    const readyCallback = fakePlayer.ready.mock.calls[0][0]
     readyCallback()
     expect(fakePlayer.currentTime).toHaveBeenCalledWith(30)
   })
 
   it('ended 事件：reportNow 立即上报（POST /api/records/heartbeat，user_id/content_id 正确）', async () => {
     await mountDetail('/detail/video-7092?userid=u9')
-    const endedCallback = fakePlayer.on.mock.calls.find((c) => c[0] === 'ended')![1] as () => void
+    const endedCallback = fakePlayer.on.mock.calls.find((c) => c[0] === 'ended')[1]
     endedCallback()
     await flushPromises()
     const call = fetchMock.mock.calls.find((c) => c[0] === '/api/records/heartbeat')
     expect(call).toBeDefined()
-    const init = call![1] as RequestInit
+    const init = call[1]
     expect(JSON.parse(String(init.body))).toMatchObject({ user_id: 'u9', content_id: 'video-7092' })
   })
 
   it('unmount：player.dispose 被调用（与 usePlayRecord 清理联动）', async () => {
     await mountDetail('/detail/video-7092?userid=u9')
-    wrapper!.unmount()
+    wrapper.unmount()
     wrapper = null
     expect(fakePlayer.dispose).toHaveBeenCalledTimes(1)
   })
@@ -178,7 +172,7 @@ describe('Detail - article 形态', () => {
 
   it('渲染 article_html 并按服务端 position 百分比定位滚动容器', async () => {
     await mountDetail('/detail/article-001?userid=u9')
-    const box = wrapper!.find('.article-box').element as HTMLDivElement
+    const box = wrapper.find('.article-box').element
     expect(box.innerHTML).toContain('正文段落')
     expect(box.scrollTop).toBe(300)    // 60% × (1000 - 500)
   })

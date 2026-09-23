@@ -1,8 +1,9 @@
 import videojs from 'video.js'
-import type { DisposablePlaySource } from '../usePlayRecord'
 
-/** video.js Player 类型（经默认导出推导，规避 dist/types 子路径导出差异） */
-export type VideoJsPlayer = ReturnType<typeof videojs>
+/**
+ * video.js Player 类型（经默认导出推导，规避 dist/types 子路径导出差异）
+ * @typedef {ReturnType<typeof videojs>} VideoJsPlayer
+ */
 
 /**
  * video.js 采集适配器（spec §7.3）：
@@ -12,13 +13,15 @@ export type VideoJsPlayer = ReturnType<typeof videojs>
  *   2x 倍速下 timeupdate 正常差值约 0.5s 不受影响（防拖动/倍速虚增）
  * - position = player.currentTime()
  * - PlaySource 接口签名不变：播放器实现可替换，hook 与服务端零改动
+ * @param {VideoJsPlayer} player
+ * @returns {import('../usePlayRecord').DisposablePlaySource}
  */
-export function videoSource(player: VideoJsPlayer): DisposablePlaySource {
+export function videoSource(player) {
   let playedDelta = 0
   let position = 0
-  let lastTime: number | null = null
+  let lastTime = null
 
-  const onTimeUpdate = (): void => {
+  const onTimeUpdate = () => {
     const t = player.currentTime()
     if (typeof t !== 'number') return   // 类型守卫：video.js 8 类型 currentTime() 返回 number | undefined，未就绪时跳过
     if (lastTime !== null) {

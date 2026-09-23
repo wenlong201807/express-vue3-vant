@@ -16,24 +16,35 @@ const API_BASE = 'http://localhost:3000'
 const VIDEO_ID = 'video-7092'
 const ts = Date.now()
 
-interface PlayRow {
-  played_sec: number
-  position: number
-  stay_sec: number
-  finished: number
-  updated_at: string
-}
+/**
+ * @typedef {object} PlayRow
+ * @property {number} played_sec
+ * @property {number} position
+ * @property {number} stay_sec
+ * @property {number} finished
+ * @property {string} updated_at
+ */
 
 // HTTP 黑盒读取播放记录：GET /api/records/:contentId。
 // 空记录时接口返回零值默认（HTTP 200），以 updated_at 空串区分「从未上报」→ 返回 null。
-async function fetchRecord(userId: string, contentId: string): Promise<PlayRow | null> {
+/**
+ * @param {string} userId
+ * @param {string} contentId
+ * @returns {Promise<PlayRow | null>}
+ */
+async function fetchRecord(userId, contentId) {
   const res = await fetch(`${API_BASE}/api/records/${contentId}?user_id=${encodeURIComponent(userId)}`)
   expect(res.ok).toBeTruthy()
-  const j = (await res.json()) as PlayRow
+  const j = await res.json()
   return j.updated_at === '' ? null : j
 }
 
-async function seedRecordViaApi(userId: string, body: Record<string, number | string>): Promise<void> {
+/**
+ * @param {string} userId
+ * @param {Record<string, number | string>} body
+ * @returns {Promise<void>}
+ */
+async function seedRecordViaApi(userId, body) {
   const res = await fetch(`${API_BASE}/api/records/heartbeat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -49,9 +60,9 @@ test('心跳定时上报：播放数秒后三指标增长', async ({ page }) => 
   await page.waitForTimeout(17000)   // 心跳默认 15s 一跳
   const rec = await fetchRecord(user, VIDEO_ID)
   expect(rec).not.toBeNull()
-  expect(rec!.played_sec).toBeGreaterThan(0)
-  expect(rec!.position).toBeGreaterThan(0)
-  expect(rec!.stay_sec).toBeGreaterThan(0)
+  expect(rec.played_sec).toBeGreaterThan(0)
+  expect(rec.position).toBeGreaterThan(0)
+  expect(rec.stay_sec).toBeGreaterThan(0)
 })
 
 test('退出补报（hidden）：beacon 补报发生，且 hidden 期间无任何定时器上报', async ({ page }) => {
@@ -66,14 +77,14 @@ test('退出补报（hidden）：beacon 补报发生，且 hidden 期间无任�
   await page.waitForTimeout(500)
   const rec = await fetchRecord(user, VIDEO_ID)
   expect(rec).not.toBeNull()                 // beacon 补报已写入
-  expect(rec!.played_sec).toBeGreaterThan(0)
+  expect(rec.played_sec).toBeGreaterThan(0)
 
-  const updated = rec!.updated_at
-  const played = rec!.played_sec
+  const updated = rec.updated_at
+  const played = rec.played_sec
   await page.waitForTimeout(5000)           // hidden 期间：心跳停止、停留冻结
   const rec2 = await fetchRecord(user, VIDEO_ID)
-  expect(rec2!.updated_at).toBe(updated)    // 无新上报
-  expect(rec2!.played_sec).toBe(played)
+  expect(rec2.updated_at).toBe(updated)    // 无新上报
+  expect(rec2.played_sec).toBe(played)
 })
 
 test('退出补报（路由跳转）：详情页返回列表触发补报', async ({ page }) => {
@@ -88,7 +99,7 @@ test('退出补报（路由跳转）：详情页返回列表触发补报', async
   await page.waitForTimeout(500)
   const rec = await fetchRecord(user, VIDEO_ID)
   expect(rec).not.toBeNull()
-  expect(rec!.played_sec).toBeGreaterThan(0)
+  expect(rec.played_sec).toBeGreaterThan(0)
 })
 
 test('列表三态渲染：not_started / continue / finished', async ({ page }) => {
@@ -117,7 +128,7 @@ test('续播反显与 video.js 控制条（.vjs-play-control / .vjs-playback-rat
 
   await page.goto(`/detail/${VIDEO_ID}?userid=${user}`)
   await page.waitForTimeout(2500)           // player ready → currentTime(服务端 position)
-  const currentTime = await page.evaluate(() => (document.querySelector('video') as HTMLVideoElement).currentTime)
+  const currentTime = await page.evaluate(() => document.querySelector('video').currentTime)
   expect(currentTime).toBeGreaterThan(55)   // 服务端 position = 61.486
 
   await page.hover('.video-js')

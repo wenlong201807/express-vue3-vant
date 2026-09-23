@@ -1,23 +1,27 @@
-<script setup lang="ts">
+<script setup>
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getContents, type ContentListItem } from '../api/record'
+import { getContents } from '../api/record'
 
 const route = useRoute()
 const router = useRouter()
 
 const userId = ref(typeof route.query.userid === 'string' ? route.query.userid : 'guest')
-const items = ref<ContentListItem[]>([])
+const items = ref([])
 const loading = ref(true)
 
 // 三态映射（spec §8.1）：未开始灰 / 继续播放蓝 / 已播完绿 —— 对应 Vant Tag default/primary/success
-const STATUS_META: Record<ContentListItem['status'], { text: string; type: 'default' | 'primary' | 'success' }> = {
+const STATUS_META = {
   not_started: { text: '未开始', type: 'default' },
   continue: { text: '继续播放', type: 'primary' },
   finished: { text: '已播完', type: 'success' }
 }
 
-function subtitle(item: ContentListItem): string {
+/**
+ * @param {import('../api/record').ContentListItem} item
+ * @returns {string}
+ */
+function subtitle(item) {
   if (item.status === 'not_started') return '暂无播放记录'
   const c = item.content
   if (c.type === 'video' && c.duration_sec && c.duration_sec > 0) {
@@ -27,8 +31,12 @@ function subtitle(item: ContentListItem): string {
   return `已读 ${Math.floor(item.record.position)}%`
 }
 
-/** 纯展示辅助：进度条填充百分比（视频按 position/duration，图文 position 即百分比），不参与任何上报 */
-function progressPercent(item: ContentListItem): number {
+/**
+ * 纯展示辅助：进度条填充百分比（视频按 position/duration，图文 position 即百分比），不参与任何上报
+ * @param {import('../api/record').ContentListItem} item
+ * @returns {number}
+ */
+function progressPercent(item) {
   const c = item.content
   const raw =
     c.type === 'video' && c.duration_sec && c.duration_sec > 0
@@ -37,7 +45,10 @@ function progressPercent(item: ContentListItem): number {
   return Math.min(100, Math.max(0, Math.floor(raw)))
 }
 
-function goDetail(item: ContentListItem): void {
+/**
+ * @param {import('../api/record').ContentListItem} item
+ */
+function goDetail(item) {
   router.push(`/detail/${item.content.id}?userid=${encodeURIComponent(userId.value)}`)
 }
 
