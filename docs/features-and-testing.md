@@ -133,9 +133,9 @@
 #### 7）`src/views/__tests__/Detail.test.js` — 详情页组件测试
 
 - 命令：`npx vitest run src/views/__tests__/Detail.test.js`
-- 覆盖功能点：E2（videojs 初始化参数、ready 续播反显）、E3（ended 即时上报、unmount dispose）、E4（v-html 渲染与 position 百分比定位）
+- 覆盖功能点：E2（videojs 初始化参数含常驻控制条与当前/总时长显示、ready 续播反显）、E3（ended 即时上报、unmount dispose、destroy 抛错时 dispose 仍被调用——防全局注册表泄漏）、E4（v-html 渲染与 position 百分比定位）、加载失败空态（getContents reject 不初始化播放器）
 - 前置条件：`npm install`；video.js 与 `api/record` 为 mock
-- 预期输出：`Tests  5 passed (5)`
+- 预期输出：`Tests  7 passed (7)`
 
 #### 8）`e2e/play-record.e2e.spec.js` — Playwright 端到端
 
@@ -223,3 +223,60 @@ npm run smoke         →  SMOKE OK
 3. **服务重启后数据没了**：设计如此。存储层为内存实现（spec v1.1.0 移除 SQLite），记录不落盘，重启清零；源数据（1 视频 + 2 图文）随代码常驻不受影响。想重置测试数据，重启 `dev:server` 即可。
 4. **改了 server 代码数据就清零**：`dev:server` 用 `node --watch` 启动，`server/` 下任何文件被编辑都会立即重启进程、清空内存记录。联调时发现「数据丢了」先确认是不是刚保存过 server 文件。
 5. **smoke 报连接失败或 FAIL**：先确认后端在跑（`curl -s http://localhost:3000/api/health` 应返回 `{"ok":true}`）。`SMOKE OK` 只在全部断言通过时打印；脚本使用固定用户 `smoke-user` + 每轮唯一零值用户，服务端 MAX 幂等保证重复执行不因残留数据报错。
+
+---
+
+## 第三部分：测试通过状态报告
+
+- 报告基准：tag `v1.2.5`（`mai` 分支），2026-09-23 全量回归实跑
+- 结论先行：**当前失败用例数为 0**（四层测试全绿）；「未通过清单」里没有失败项，只有**未覆盖项**（无自动化用例）与**环境受限项**（本地无法自动化），逐条如实列出
+
+### 1. 通过测试的功能（全量回归实跑证据，2026-09-23）
+
+| 层 | 命令 | 实跑结果 |
+|----|------|---------|
+| 后端接口/存储 | `npm run test:server` | `# tests 15 / # pass 15 / # fail 0` |
+| hook 与组件单测 | `npm run test:unit` | `Test Files 5 passed (5) / Tests 35 passed (35)` |
+| 端到端（真 Chrome + 真前后端） | `npm run test:e2e` | `5 passed (37.6s)` |
+| 冒烟（curl 三/四接口串联） | `npm run smoke` | `[1/5]`…`[5/5]` → `SMOKE OK` |
+
+**按功能编号的通过映射**（29 条功能 = 27 条有自动化直接断言 + 2 条手动）：
+
+- A1-A6、B1-B6（后端 12 条）：全部通过 —— `records.test.js`（12 用例）+ `store.test.js`（3 用例）+ smoke 5 段
+- C1-C7（核心 hook 7 条）：全部通过 —— `usePlayRecord.test.js`（15 用例，含退出矩阵四事件、基线竞态、keepalive/beacon 双通道、onReport 抛错加固）
+- D1-D2（适配器 2 条）：全部通过 —— `videoSource`（5）+ `articleSource`（5）
+- E1-E4（页面 4 条）：全部通过 —— `List.test.js`（3）+ `Detail.test.js`（7，含 v1.2.5 加固两用例）+ e2e 真实浏览器链路
+- F2-F3（测试资产 2 条）：全部通过 —— 本报告的实跑即验证
+- 关键行为点抽查证据：MAX 幂等重发不变 / 乱序不回退 / 95% 判完边界（58.4117 含等号）与永久性 / 零值默认非 404 / 三态聚合 / hidden 补报且无定时器上报 / 路由跳转补报 / 续播反显 currentTime=服务端 position / seek ≥1s 不计时长 / 2x 倍速双指标分离——均有对应通过用例（见第二部分 §2 逐项映射）
+
+### 2. 未通过 / 未覆盖清单（如实亮牌）
+
+> 本节无「失败用例」；以下为**无自动化覆盖**或**本地环境无法自动化**的功能点，附验证方式与风险定性。
+
+| # | 项 | 状态 | 说明与现有替代验证 | 风险 |
+|---|----|------|--------------------|------|
+| 1 | E5 路由 key 重挂载 | ⚠️ 仅手动 | `App.vue` 的 `:key="route.fullPath)` 无专项断言；靠第二部分 §4.2 手动回归 + 代码审阅。可用 List↔Detail 连续切换断言基线不串，列为待补用例 | 低 |
+| 2 | F1 双进程 dev 体验 | ⚠️ 仅手动 | `npm run dev` 并起/代理/静态目录由人工访问验证；后端腿已被 smoke 覆盖 | 低 |
+| 3 | 企微真机关页补报到达率 | ⛔ 环境受限 | 真实「杀进程/关 WebView」时 `pagehide + sendBeacon` 的到达率本地无法自动化；现有近似：单测模拟 pagehide（各补报一次）+ e2e 合成 visibilitychange。真机按第二部分 §5 清单验收 | 中（iOS WebView 回收激进） |
+| 4 | 企微内置内核兼容性 | ⛔ 环境受限 | H.264/`playsinline`/`sendBeacon` 在企微内核的表现需真机回归；本地以 Chrome channel 近似 | 中 |
+| 5 | 并发与压力 | ⛔ 未测试 | 多用户并发心跳、长时间运行内存曲线无压测。设计依据：Node 单线程 + 同步 store，handler 内不可交错（v1.0.0 评审确认），但无压测证据 | 中（上量前建议补） |
+| 6 | videoSource NaN 边界 | ⚠️ 已知理论边界 | `player.currentTime()` 若返回 NaN 可穿透 `typeof` 守卫污染基线（v1.2.3 评审记录）；video.js 正常路径不返回 NaN，未触发过 | 低 |
+| 7 | 重启清零行为（B2 后半） | ⚠️ 无专项用例 | 「重启记录清零、源数据常驻」为设计行为，FAQ 第 3 条说明；无自动化断言 | 低 |
+| 8 | 视觉与排版系统化 | ⚠️ 抽检级 | 仅 375px 三页截图 + 视觉模型评审（列表 7.5/10、图文 8/10、视频控制条完整）；414px+ 宽度、无障碍对比度无系统化断言 | 低 |
+| 9 | KeepAlive 场景 | ➖ 未适用 | 当前路由无 keep-alive；若未来引入，`onBeforeUnmount` 不触发需改 `onDeactivated` 停心跳——记录为架构前提 | 低 |
+
+### 3. 已知观察项（非缺陷，持续记录）
+
+- Detail chunk ≈698KB（video.js 整包），如需优化可 `manualChunks` 拆分
+- Vant 全量注册（主包偏大），按需注册为后续优化项
+- e2e「hidden 无定时器上报」观察窗（约 8.5s）早于首个 15s 心跳到期点，为弱信号；强断言由 hook 单测「unmount 后 60s 零上报」承担
+
+### 4. 覆盖率总表
+
+| 维度 | 数值 |
+|------|------|
+| 功能条目 | 29（A6+B6+C7+D2+E5+F3） |
+| 有自动化直接断言 | 27 / 29 |
+| 仅手动 | 2（E5、F1） |
+| 当前失败用例 | **0** |
+| 本地无法自动化（需真机/压测） | 2 类（企微真机、并发压力） |
