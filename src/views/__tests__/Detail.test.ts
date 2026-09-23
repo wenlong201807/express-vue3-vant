@@ -115,17 +115,22 @@ describe('Detail - video 形态', () => {
     })
   })
 
-  it('videojs 初始化：controls + playbackRates [0.5,1,1.25,1.5,2] + mp4 source', async () => {
+  it('videojs 初始化：controls + playbackRates [0.5,1,1.25,1.5,2] + mp4 source + 常驻控制条与当前/总时长显示', async () => {
     await mountDetail('/detail/video-7092?userid=u9')
     expect(videojsFactory).toHaveBeenCalledTimes(1)
     const options = videojsFactory.mock.calls[0][1] as {
       controls: boolean
       playbackRates: number[]
       sources: Array<{ src: string; type: string }>
+      inactivityTimeout: number
+      controlBar: { remainingTimeDisplay: boolean; currentTimeDisplay: boolean; durationDisplay: boolean }
     }
     expect(options.controls).toBe(true)
     expect(options.playbackRates).toEqual([0.5, 1, 1.25, 1.5, 2])
     expect(options.sources).toEqual([{ src: '/source/7092_1790088875.mp4', type: 'video/mp4' }])
+    // 常驻：禁用无操作自动隐藏；时间格式：当前/总时长（关闭剩余时间显示）
+    expect(options.inactivityTimeout).toBe(0)
+    expect(options.controlBar).toEqual({ remainingTimeDisplay: false, currentTimeDisplay: true, durationDisplay: true })
   })
 
   it('续播反显：player ready 后 currentTime(服务端 position)', async () => {

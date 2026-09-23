@@ -59,7 +59,15 @@ onMounted(async () => {
     player = videojs(el, {
       controls: true,
       playbackRates: [0.5, 1, 1.25, 1.5, 2],
-      sources: [{ src: item.content.video_url ?? '', type: 'video/mp4' }]
+      sources: [{ src: item.content.video_url ?? '', type: 'video/mp4' }],
+      // 常驻控制条：禁用无操作自动隐藏（时间/进度条一直可见）
+      inactivityTimeout: 0,
+      // 时间显示：当前播放位置 / 视频总时长（替代默认的剩余时间 -1:00 格式）
+      controlBar: {
+        remainingTimeDisplay: false,
+        currentTimeDisplay: true,
+        durationDisplay: true
+      }
     })
     // 续播反显：ready 后 currentTime(服务端 position)
     player.ready(() => {
