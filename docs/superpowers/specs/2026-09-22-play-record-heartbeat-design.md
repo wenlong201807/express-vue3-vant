@@ -8,6 +8,10 @@
 
 ## 变更记录
 
+### v1.3.0（2026-09-24）
+
+- `usePlayRecord` 新增可选配置 `ready?: () => boolean`（内容就绪守卫）：返回 false 期间（内容未就绪，如详情页加载完成前、加载失败态）心跳每跳入口直接跳过——不发请求、不调 `onReport`、不更新 `latest`；四条退出路径（hidden / pagehide / beforeunload / unmount）的 beacon 补报同样全部跳过（未就绪快照 `position=0` 会被服务端直接覆盖、清掉历史续播位置，故 beacon 通道必须一并拦截）——未就绪期间**零上报零污染**。不传 `ready` = 恒就绪，行为与旧版完全一致（全向后兼容）。`Detail.vue` 传入 `ready: () => switchable.isAttached()`，根治「二次进入秒退 position 归零」边界（scenarios 附录 B 边界 1）。
+
 ### v1.2.4（2026-09-23）
 
 - 应用户指令前端全量 TypeScript→JavaScript（类型契约以 JSDoc @typedef 保全于源码注释），TS 工具链（tsconfig/vue-tsc/typescript）退役，vite.config 改 .mjs。行为与接口零变化。同日 v1.2.3：服务端 ESM 转 CommonJS（require/module.exports），行为零变化。
@@ -274,6 +278,8 @@ interface PlayRecordOptions {
   interval?: number                 // 心跳间隔 ms，默认 15000
   source: PlaySource                // 扩展点1：采集适配器
   reporter?: Reporter               // 扩展点2：上报通道，默认实现 fetch 心跳 + sendBeacon 退出补报；测试可注入 mock
+  ready?: () => boolean             // v1.3.0 内容就绪守卫：返回 false 期间心跳与四条退出路径的补报全部跳过
+                                   // （零上报零污染，未就绪快照 position=0 不触达服务端）；缺省恒就绪
   onReport?: (payload: HeartbeatPayload) => void
 }
 

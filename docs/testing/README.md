@@ -7,12 +7,12 @@
 |---|---|---|---|---|---|---|
 | 1 | `server/__tests__/store.test.js` | node:test 接口 | 内存 store 源数据结构（1 视频 + 2 图文，视频指向 `/source` 素材、duration 61.486）；getRecord 零值默认；listContentsWithRecord 三态聚合 | `node --test server/__tests__/store.test.js` | `npm install` 已执行；纯内存对象，无落盘、无端口 | `# tests 3` / `# pass 3` / `# fail 0` |
 | 2 | `server/__tests__/records.test.js` | node:test 接口 | heartbeat INSERT/UPDATE、MAX 幂等重发不变、乱序不回退、position 覆盖、视频/图文 95% 判完与永久性、空记录零值默认、必传 400、未知内容 404、GET /api/records 全量快照（count + 降序）、contents 三态聚合、缺省 guest | `node --test server/__tests__/records.test.js` | 同上；每个用例独立内存 store + 随机端口 | `# tests 12` / `# pass 12` / `# fail 0`（两文件合并跑用 `npm run test:server`，预期 15/15/0） |
-| 3 | `src/hooks/__tests__/usePlayRecord.test.js` | vitest 单测 | 心跳节奏与「基线+增量」全量快照；退出矩阵四事件（hidden 停跳+beacon、visible 重启、pagehide/beforeunload beacon、unmount 补报+移除监听）；hidden 停留时钟冻结；心跳失败静默；pause/resume/reportNow；基线竞态自纠；onReport 抛错清理仍完成；默认 Reporter 的 sendBeacon 与 fetch keepalive（含 heartbeat keepalive） | `npx vitest run src/hooks/__tests__/usePlayRecord.test.js` | `npm install`；无需起后端（fetch stub） | `Tests  15 passed (15)` |
+| 3 | `src/hooks/__tests__/usePlayRecord.test.js` | vitest 单测 | 心跳节奏与「基线+增量」全量快照；退出矩阵四事件（hidden 停跳+beacon、visible 重启、pagehide/beforeunload beacon、unmount 补报+移除监听）；hidden 停留时钟冻结；心跳失败静默；pause/resume/reportNow；基线竞态自纠；onReport 抛错清理仍完成；ready 守卫（v1.3.0：未就绪期间双通道零上报+latest 不动 / 转就绪恢复基线+增量 / 未就绪四退出路径全零）；场景7b 断网恢复（连续 3 跳 reject 静默，恢复首跳一次补齐全部累计）；默认 Reporter 的 sendBeacon 与 fetch keepalive（含 heartbeat keepalive） | `npx vitest run src/hooks/__tests__/usePlayRecord.test.js` | `npm install`；无需起后端（fetch stub） | `Tests  19 passed (19)` |
 | 4 | `src/hooks/__tests__/videoSource.test.js` | vitest 单测 | timeupdate 差值累加；差值 ≥1s seek 不计；负差值回拖不计；2x 倍速 0.5s 差值正常计入；destroy 移除监听 | `npx vitest run src/hooks/__tests__/videoSource.test.js` | `npm install`；Player 为测试替身 | `Tests  5 passed (5)` |
 | 5 | `src/hooks/__tests__/articleSource.test.js` | vitest 单测 | 滚动百分比换算（向下取整、0-100 收敛）；200ms 节流首沿+尾沿；playedDelta 恒 0；不可滚动容器 position=100；destroy 清理 | `npx vitest run src/hooks/__tests__/articleSource.test.js` | `npm install`；容器为测试替身；fake timers | `Tests  5 passed (5)` |
 | 6 | `src/views/__tests__/List.test.js` | vitest 组件 | Vant Cell+Tag 三态（default 灰/primary 蓝/success 绿）；副标题百分比文案；点击跳 `/detail/:id?userid=`（缺省 guest） | `npx vitest run src/views/__tests__/List.test.js` | `npm install`；api/record 为 mock | `Tests  3 passed (3)` |
 | 7 | `src/views/__tests__/Detail.test.js` | vitest 组件 | video：videojs 初始化参数（playbackRates [0.5,1,1.25,1.5,2]）、ready 续播反显、ended 即时上报、unmount dispose、destroy 抛错时 dispose 仍被调用（防 video.js 全局注册表泄漏）；article：v-html 渲染与 position 百分比定位；加载失败：getContents reject 显示失败空态且不初始化播放器 | `npx vitest run src/views/__tests__/Detail.test.js` | `npm install`；video.js 与 api/record 为 mock | `Tests  7 passed (7)` |
-| 8 | `e2e/play-record.e2e.spec.js` | playwright e2e | 真实前后端：播放 17s 三指标经 HTTP 校验；hidden 补报且无定时器上报；路由跳转补报；列表三态；续播反显（currentTime=服务端 position）；.vjs-play-control/button.vjs-playback-rate 存在 | `npm run test:e2e` | 本机已装 Google Chrome（config channel:'chrome'）；3000/5173 端口空闲（webServer 自动起停） | `5 passed` |
+| 8 | `e2e/play-record.e2e.spec.js` | playwright e2e | 真实前后端：播放 17s 三指标经 HTTP 校验；hidden 补报且无定时器上报；路由跳转补报；场景6 暂停（视频暂停后心跳不停：played ±0.5 冻结、stay 每跳 ≈+15、updated_at 持续变新）；场景7b 断网恢复（route 拦截心跳跨一跳失败静默零写入，unroute 后次跳一次补齐断网期间累计）；列表三态；续播反显（currentTime=服务端 position）；.vjs-play-control/button.vjs-playback-rate 存在 | `npm run test:e2e` | 本机已装 Google Chrome（config channel:'chrome'）；3000/5173 端口空闲（webServer 自动起停） | `7 passed` |
 | 9 | `scripts/smoke.sh` | curl 冒烟 | 三接口串联：上报/幂等重发/乱序不回退/MAX+position 覆盖/零值默认/三态聚合；可重复执行 | `npm run smoke` | 后端已启动：`npm run dev:server` | 末行输出 `SMOKE OK`（重复执行同样通过） |
 
 ## 全量回归（一条龙）
@@ -24,4 +24,4 @@ npm run test:server && npm run test:unit && npm run test:e2e && npm run smoke
 前置：`npm run dev:server` 保持运行（smoke 依赖；e2e 会自动管理自己的端口，
 执行 e2e 前先停掉手工 dev 进程，结束后再重启 dev:server 跑 smoke）。
 
-预期：server `# pass 15` → unit `Tests  35 passed (35)` → e2e `5 passed` → smoke `SMOKE OK`。
+预期：server `# pass 15` → unit `Tests  39 passed (39)` → e2e `7 passed` → smoke `SMOKE OK`。

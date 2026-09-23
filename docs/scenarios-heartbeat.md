@@ -1,6 +1,6 @@
 # 详情页心跳机制·七大场景行为说明
 
-- 基准版本：`v1.2.5`（分支 `mai`）
+- 基准版本：`v1.3.0`（分支 `mai`）
 - 日期：2026-09-24
 - 文档性质：**现状行为说明书**——每条行为均逐条对照代码核实并标注 `文件:行号`，非设计承诺；与任何旧口径冲突时以代码为准
 - 配套文档：功能编号（A1…F3）引用 [docs/features-and-testing.md](features-and-testing.md)；测试资产索引见 [docs/testing/README.md](testing/README.md)；行为口径权威来源为设计规格 `docs/superpowers/specs/2026-09-22-play-record-heartbeat-design.md`
@@ -12,28 +12,28 @@
 
 ### 0.1 心跳启动
 
-- `Detail.vue` 在 setup 内同步调用 `usePlayRecord`（`src/views/Detail.vue:47`），hook 末尾同步 `startTimer()`（`src/hooks/usePlayRecord.js:229`）。
-- 间隔 `interval = options.interval ?? 15000`（`usePlayRecord.js:111`）；`setInterval` 的特性决定**首跳在挂载后 T+15s**，此后每 15s 一跳。
-- 启动守卫（`usePlayRecord.js:161-162`）：`disposed` / `manualPaused` / 已有定时器时不重复启动；**挂载瞬间页面处于 hidden 则不启动**，由 visible 事件重启（`usePlayRecord.js:162、197-199`）——后台开页时首跳顺延到回前台后再 +15s。
+- `Detail.vue` 在 setup 内同步调用 `usePlayRecord`（`src/views/Detail.vue:52`），hook 末尾同步 `startTimer()`（`src/hooks/usePlayRecord.js:237`）。
+- 间隔 `interval = options.interval ?? 15000`（`usePlayRecord.js:114`）；`setInterval` 的特性决定**首跳在挂载后 T+15s**，此后每 15s 一跳。
+- 启动守卫（`usePlayRecord.js:169-170`）：`disposed` / `manualPaused` / 已有定时器时不重复启动；**挂载瞬间页面处于 hidden 则不启动**，由 visible 事件重启（`usePlayRecord.js:170、205-207`）——后台开页时首跳顺延到回前台后再 +15s。
 
-### 0.2 快照公式（makeSnapshot，`usePlayRecord.js:132-142`）
+### 0.2 快照公式（makeSnapshot，`usePlayRecord.js:135-145`）
 
 心跳与退出补报共用同一组装口径——**全量快照**（历史基线 + 会话增量）：
 
 ```
-played_sec = round3(基线.played_sec + 采集增量 playedDelta)      # L137，round3 = 保留三位小数（L102-104）
-position   = 采集源当前值                                         # L138：视频 = currentTime（秒）；图文 = 滚动百分比（0-100）
-stay_sec   = round3(基线.stay_sec + 会话可见墙钟秒)               # L139：仅 visible 期间累计，hidden 冻结（L124-126）
-client_ts  = Date.now()                                           # L140
+played_sec = round3(基线.played_sec + 采集增量 playedDelta)      # L140，round3 = 保留三位小数（L105-107）
+position   = 采集源当前值                                         # L141：视频 = currentTime（秒）；图文 = 滚动百分比（0-100）
+stay_sec   = round3(基线.stay_sec + 会话可见墙钟秒)               # L142：仅 visible 期间累计，hidden 冻结（L127-129）
+client_ts  = Date.now()                                           # L143
 ```
 
 图文源（`articleSource`）的 `playedDelta` 恒为 0（功能编号 D2），图文场景 `played_sec` 永远等于基线值。
 
 ### 0.3 历史基线
 
-- 挂载即异步 `GET /api/records/:contentId?user_id=`（`usePlayRecord.js:177-193`）；无记录时服务端返回各字段 0 的零值默认（HTTP 200，不做 404，`server/routes/records.js:48-54`、`server/store.js:139-146`，功能编号 A4）。
-- 基线落定后刷新 `latest`（`usePlayRecord.js:189`）。
-- 拉取失败（网络异常或非 2xx，`usePlayRecord.js:181、190-192`）按**全 0 基线继续**，靠服务端 MAX 幂等兜底不回退。
+- 挂载即异步 `GET /api/records/:contentId?user_id=`（`usePlayRecord.js:185-201`）；无记录时服务端返回各字段 0 的零值默认（HTTP 200，不做 404，`server/routes/records.js:48-54`、`server/store.js:139-146`，功能编号 A4）。
+- 基线落定后刷新 `latest`（`usePlayRecord.js:197`）。
+- 拉取失败（网络异常或非 2xx，`usePlayRecord.js:189、190-192`）按**全 0 基线继续**，靠服务端 MAX 幂等兜底不回退。
 
 ### 0.4 服务端写库（store.upsertRecord，`server/store.js:98-133`）
 
@@ -50,20 +50,27 @@ client_ts  = Date.now()                                           # L140
 - `diff ≥ 1`（前跳/拖动）或 `diff < 0`（回拖）**均不计入播放时长**；但 `lastTime` 与 `position` 均跟随更新（`videoSource.js:33-34`）→ 下一跳快照的 `position` 立即反映拖动后位置。
 - 2x 倍速下 `timeupdate` 正常差值约 0.5s，仍正常计入（防拖动虚增不误伤倍速，D1）。
 
-### 0.6 退出矩阵（`usePlayRecord.js:196-226`，全部事件驱动、绝不由定时器触发）
+### 0.6 退出矩阵（`usePlayRecord.js:203-235`，全部事件驱动、绝不由定时器触发）
 
 | 事件 | 动作（行号） |
 |------|--------------|
-| `visibilitychange` → hidden | 冻结停留时钟（L201-202）+ 停 interval（L203）+ beacon 补报最后快照（L204） |
-| `visibilitychange` → visible | 停留时钟续计（L198）+ 重启 interval（L199） |
-| `pagehide` / `beforeunload` | beacon 补报（L208-210；iOS 企业微信 WebView 关键路径） |
-| `onBeforeUnmount`（路由跳转） | **先**置 disposed + 停 timer + 拆三个监听（L216-220），**后** beacon 补报（L221-225）；清理必达，补报失败静默 |
+| `visibilitychange` → hidden | 冻结停留时钟（L209-210）+ 停 interval（L211）+ beacon 补报最后快照（L212） |
+| `visibilitychange` → visible | 停留时钟续计（L206）+ 重启 interval（L207） |
+| `pagehide` / `beforeunload` | beacon 补报（L216-218；iOS 企业微信 WebView 关键路径） |
+| `onBeforeUnmount`（路由跳转） | **先**置 disposed + 停 timer + 拆三个监听（L224-228），**后** beacon 补报（L229-233）；清理必达，补报失败静默 |
 
-beacon 通道实现：`navigator.sendBeacon`（Blob + `application/json`）→ 失败/不可用 fallback `fetch keepalive` → 仍失败 catch 静默（`usePlayRecord.js:69-86`，C5）。
+beacon 通道实现：`navigator.sendBeacon`（Blob + `application/json`）→ 失败/不可用 fallback `fetch keepalive` → 仍失败 catch 静默（`usePlayRecord.js:73-90`，C5）。
 
 ### 0.7 ended 即时加发
 
-`player.on('ended') → handle.reportNow()`（`Detail.vue:84`），按心跳通道（fetch keepalive）**立即加发一跳**（`usePlayRecord.js:243-245`），不改变 interval 节奏（E3）。播完瞬间通常还会走 unmount beacon 再补一次，重复值由服务端 MAX 幂等吸收。
+`player.on('ended') → handle.reportNow()`（`Detail.vue:89`），按心跳通道（fetch keepalive）**立即加发一跳**（`usePlayRecord.js:251-253`），不改变 interval 节奏（E3）。播完瞬间通常还会走 unmount beacon 再补一次，重复值由服务端 MAX 幂等吸收。
+
+### 0.8 ready 守卫（v1.3.0）
+
+- 配置：`usePlayRecord` 新增可选 `ready?: () => boolean`（`usePlayRecord.js:33-35`）；`Detail.vue` 传入 `ready: () => switchable.isAttached()`（`src/views/Detail.vue:52`）——加载完成 attach 真实采集源（`Detail.vue:92、99`）后才算就绪，加载失败（loadFailed）永不 attach。
+- 行为：未就绪期间 `emitAndReport` 入口直接 return（`usePlayRecord.js:155`）——**心跳每跳与 0.6 矩阵四条退出路径的 beacon 补报统一跳过**（零上报零污染），`latest` / `onReport` 一并不触发；interval 调度节奏与停留时钟累计不受影响，转就绪后下一跳自动恢复，payload = 基线 + 全部会话增量（含未就绪期间的停留墙钟）。基线 GET 照常拉取（ready 只拦上报不拦基线）。
+- 为何 beacon 也拦：未就绪快照走 switchable 空源兜底 `position=0`（`Detail.vue:37`），而服务端 position 直接覆盖不走 MAX（`store.js:128`）——一次未就绪补报即清零历史续播位置（原附录 B 边界 1）。
+- 不传 `ready` = 恒就绪，行为与 v1.2.5 完全一致（全向后兼容）。
 
 ---
 
@@ -95,8 +102,8 @@ T+30s   次跳：仍不播 → played=0 / position=0 / stay=30 → UPDATE（仅 
 
 - 列表状态从「未开始」灰 Tag 变「继续播放」蓝 Tag；副标题 `已播 0% · 续播位置 0s`（`List.vue:24-32`：有记录即走百分比分支，哪怕全 0）。
 - **两个关键现状（如实）**：
-  1. **进入即记录**：只要进入满 15s（或任一次退出补报送达），哪怕从未播放也产生记录，列表从「未开始」变「继续播放」——这是现状语义，不是 bug 标注为未实现（附录 B 边界 2）。
-  2. **15s 内秒退也会落记录**：unmount beacon 携带 switchable 空源的零值兜底快照（`Detail.vue:37` 返回 `{ playedDelta: 0, position: 0 }`）→ 服务端 INSERT 一条 `position=0` 记录。
+  1. **进入即记录**：只要就绪后进入满 15s（或任一次退出补报送达），哪怕从未播放也产生记录，列表从「未开始」变「继续播放」——这是现状语义，不是 bug 标注为未实现（附录 B 边界 2）。
+  2. **15s 内秒退：加载完成前零记录，加载完成后仍落记录（v1.3.0 起）**——attach 前（含加载失败态）秒退被 0.8 ready 守卫拦截，零上报零记录；attach 后秒退走 unmount beacon，快照来自真实采集源（未播放时 `played=0 / position=0`）→ 服务端 INSERT 一条 `position=0` 记录（附录 B 边界 2 的「进入即记录」语义，此时上报本身已是就绪快照、无污染）。
 
 ### 验证方法
 
@@ -114,7 +121,7 @@ npm run dev   # 或终端1 npm run dev:server + 终端2 npm run dev:client
 
 ### 对应测试用例
 
-INSERT/400/404 → A1（`records.test.js`）；零值默认 → A4；三态聚合 → A5（`store.test.js` / `records.test.js`）+ e2e「列表三态渲染」。**「进入未播满 15s 即产生记录 → 列表变继续播放」的场景链路 ⚠️ 无自动化覆盖**（现有 e2e 用例均带真实播放动作）。
+INSERT/400/404 → A1（`records.test.js`）；零值默认 → A4；三态聚合 → A5（`store.test.js` / `records.test.js`）+ e2e「列表三态渲染」。**「就绪后进入未播满 15s 即产生记录 → 列表变继续播放」的场景链路 ⚠️ 无自动化覆盖**（现有 e2e 用例均带真实播放动作）；「加载完成前秒退零记录」由 ready 守卫单测覆盖（0.8，`usePlayRecord.test.js`）。
 
 ---
 
@@ -125,7 +132,7 @@ INSERT/400/404 → A1（`records.test.js`）；零值默认 → A4；三态聚�
 ```
 T0      进入，基线拉取成功：{ played_sec:12, position:30, stay_sec:40, finished:0 }
 T+1s    getContents/getRecord 返回 → videojs 初始化 → player.ready → currentTime(30) 续播反显
-        （Detail.vue:77-82，仅 record.position > 0 才反显，L79）
+        （Detail.vue:83-88，仅 record.position > 0 才反显，L84）
 T+15s   首跳：基线 + 会话增量；采集源 position 即反显后的 currentTime（30 附近起步）
 ```
 
@@ -147,19 +154,19 @@ UPDATE：`played_sec = MAX(12,12)=12`、`stay_sec = MAX(40,55)=55`、`position �
 
 列表「继续播放」，副标题 `已播 48% · 续播位置 30s`（30/61.486 ≈ 48.8% 向下取整，`List.vue:28`）。
 
-**已知边界（如实，附录 B 边界 1 复述）**：若进入后**极快退出**、早于「videojs 初始化 + 反显」完成，beacon 走 switchable 空源兜底携带 `position=0`（`Detail.vue:37`）→ 服务端 `position` 被直接覆盖（`store.js:128`），历史位置 30 → 0；`played_sec` / `stay_sec` 因 MAX 不受影响。下次进入时 `record.position=0` 不满足反显条件（`Detail.vue:79`），从头播放。该边界当前**无自动化覆盖**。
+**边界 1（已修复，v1.3.0 ready 守卫，附录 B 复述）**：进入后**极快退出**、早于「videojs 初始化 + 反显」完成时，v1.2.5 及之前 beacon 走 switchable 空源兜底携带 `position=0`（`Detail.vue:37`）→ 服务端 `position` 被直接覆盖（`store.js:128`），历史位置 30 → 0。v1.3.0 起 0.8 ready 守卫将未就绪期间的全部上报（心跳 + 四条退出补报）拦截——**加载完成前秒退 = 零上报零污染**，历史 `position` 保持 30，`played_sec` / `stay_sec` 本就因 MAX 不受影响。残余窗口见附录 B 边界 1 修复说明（attach 后、player ready 反显前的亚秒级窗口）。
 
 ### 验证方法
 
 1. 用场景 3/1 造出历史记录（如 `s2-0924` 播放到 30s 处退出）。
 2. 重进 `/detail/video-7092?userid=s2-0924` → 播放器从 ≈30s 起播（反显）。
 3. `curl -s "http://localhost:3000/api/records/video-7092?user_id=s2-0924"` 确认 `position` 在 30 附近续增。
-4. 边界复现：重进后**1 秒内立即返回**，再 curl → `position` 变 0；再进详情从 0 开始。
+4. 边界复现（v1.3.0 前后对比）：重进后**1 秒内立即返回**（早于加载完成 attach），再 curl → `position` 保持 30 不变（0.8 ready 守卫拦截未就绪补报，零上报零污染）；v1.2.5 及之前此处 `position` 会被清零。
    注意：`dev:server` 为 `node --watch`，编辑 server 文件会重启清数据（FAQ 第 4 条），验证期间勿动 `server/`。
 
 ### 对应测试用例
 
-反显 → E2（`Detail.test.js`「ready 续播反显」）+ e2e「续播反显与 video.js 控制条」；基线合并 → C2（`usePlayRecord.test.js`）。**秒退 position 归零边界 ⚠️ 无自动化覆盖**。
+反显 → E2（`Detail.test.js`「ready 续播反显」）+ e2e「续播反显与 video.js 控制条」；基线合并 → C2（`usePlayRecord.test.js`）；秒退边界根治 → ready 守卫 3 用例（`usePlayRecord.test.js`：未就绪 60s 双通道零上报 + unmount 零补报 / 转就绪后心跳恢复且为基线+增量 / 未就绪四条退出路径全零）。
 
 ---
 
@@ -212,7 +219,7 @@ T+15s   心跳①；T+30s 心跳②
 ### 时间线
 
 ```
-前置    播放至片尾：ended → reportNow 加发一跳（Detail.vue:84），position ≈ 61.486 ≥ 58.4117 → finished=1
+前置    播放至片尾：ended → reportNow 加发一跳（Detail.vue:89），position ≈ 61.486 ≥ 58.4117 → finished=1
         （注意：不必真播完——任意一跳 position ≥ 58.4117 即判完，如拖到 59s 处）
 T0      再次进入：基线 { played_sec:61.5, position:61.486, stay_sec:70, finished:1 }
 T+1s    反显 currentTime(61.486) → 播放器停在片尾
@@ -234,7 +241,7 @@ T+30s   心跳
 
 ### 列表页 / 续播反显表现
 
-列表恒「已播完」绿 Tag（三态优先 finished，`store.js:166`），即使 position 已被拖回覆盖成小值（副标题会如实显示 `已播 24% · 续播位置 15s`）。再次进入反显在片尾（≈61.486，`Detail.vue:79` 反显的是库中最后 position）。
+列表恒「已播完」绿 Tag（三态优先 finished，`store.js:166`），即使 position 已被拖回覆盖成小值（副标题会如实显示 `已播 24% · 续播位置 15s`）。再次进入反显在片尾（≈61.486，`Detail.vue:84` 反显的是库中最后 position）。
 
 ### 验证方法
 
@@ -303,7 +310,7 @@ D1 全部 5 用例（`videoSource.test.js`：差值累加 / seek ≥1s 不计 / 
 
 ### 机制要点
 
-视频暂停 ≠ hook 的 `pause()`：`Detail.vue` 全程未调用 `handle.pause()/resume()`（仅 `reportNow` 一处引用，`Detail.vue:84`），**心跳定时器照跑**。暂停期间 video.js 不再触发 `timeupdate` → `videoSource` 无新样本，`playedDelta` 与 `position` 自然冻结；`stay` 是 visible 墙钟，只要页面在前台就继续涨（`usePlayRecord.js:124-126`）。
+视频暂停 ≠ hook 的 `pause()`：`Detail.vue` 全程未调用 `handle.pause()/resume()`（仅 `reportNow` 一处引用，`Detail.vue:89`），**心跳定时器照跑**。暂停期间 video.js 不再触发 `timeupdate` → `videoSource` 无新样本，`playedDelta` 与 `position` 自然冻结；`stay` 是 visible 墙钟，只要页面在前台就继续涨（`usePlayRecord.js:127-129`）。
 
 ### 心跳与字段变化（数值示例）
 
@@ -330,7 +337,7 @@ D1 全部 5 用例（`videoSource.test.js`：差值累加 / seek ≥1s 不计 / 
 
 ### 对应测试用例
 
-**⚠️ 无自动化直接覆盖。** C6 的 `pause()/resume()` 是「手动暂停心跳」路径（`usePlayRecord.test.js`），与「视频暂停不停跳」不同机制；「暂停期间 played 平/stay 涨」仅能由 D1（无 timeupdate 即无样本）+ C3（visible 墙钟）组合推导，无显式用例，现状靠手动验证。
+e2e「场景6 暂停」（`e2e/play-record.e2e.spec.js`）：播放 ≥3s → `.vjs-play-control` 暂停 → 跨两跳对比 `GET /api/records/:id`——played 相对暂停时刻 ±0.5 冻结、stay 每跳 ≈+15 持续增长、updated_at 持续变新（心跳不停）。C6 的 `pause()/resume()` 是「手动暂停心跳」路径（`usePlayRecord.test.js`），与「视频暂停不停跳」为不同机制，二者互补。
 
 ---
 
@@ -338,23 +345,23 @@ D1 全部 5 用例（`videoSource.test.js`：差值累加 / seek ≥1s 不计 / 
 
 ### 7a 心跳请求失败（断网中在线时长内的心跳全部 reject）
 
-**行为**：`reporter.heartbeat(payload)` reject → catch **静默、不重试、无失败队列**（`usePlayRecord.js:151-153`）。恢复网络后**下一跳全量快照一次补齐**（快照永远 = 基线 + 全部会话增量），服务端 MAX 保证中间失败期无回退。
+**行为**：`reporter.heartbeat(payload)` reject → catch **静默、不重试、无失败队列**（`usePlayRecord.js:159-161`）。恢复网络后**下一跳全量快照一次补齐**（快照永远 = 基线 + 全部会话增量），服务端 MAX 保证中间失败期无回退。
 
 | 时刻 | 事件 | 服务端记录 |
 |----|----|----|
 | T+15 | 心跳成功（INSERT） | played 12 / position 12 / stay 15 |
 | T+20 | DevTools 切 Offline | — |
-| T+30 / T+45 | 心跳 fetch reject → 静默（L151-153） | 不变（12/12/15） |
+| T+30 / T+45 | 心跳 fetch reject → 静默（L159-161） | 不变（12/12/15） |
 | T+50 | 恢复 Online | — |
 | T+60 | 心跳成功：played = round3(0+57) = **57**、position **57**、stay **60** | MAX(12,57)=57 / 57 / 60（57 < 58.4117，finished 仍 0） |
 
 **验证方法**：进详情播放 → Network 面板切 Offline → 等 ≥30s（两次失败心跳，Console 无报错）→ curl 确认停在最后成功值 → 切回 Online 等 15s → curl 可见三字段一次跳到全量累计值。
 
-**对应测试用例**：「心跳失败静默」（`usePlayRecord.test.js`，C 组）覆盖失败路径本身；「恢复后一次补齐」无专项断言，由 C1 全量快照 + A2 MAX 组合保证。
+**对应测试用例**：「心跳失败静默」（`usePlayRecord.test.js`，C 组）覆盖失败路径本身；「恢复后一次补齐」由 7b hook 单测专项断言（连续 3 跳 reject 后恢复首跳 payload 含断网期间全部累计），另有 C1 全量快照 + A2 MAX 组合保证。
 
 ### 7b 断网中持续播放（本地累计不停，恢复后一次上报总量）
 
-**行为**：断网只影响上报通道，采集与快照组装是纯内存操作（`playedDelta` 累加 `videoSource.js:30`、`staySessionMs` 墙钟 `usePlayRecord.js:116、124-126`），**本地累计不停**；期间每跳请求全部失败静默。恢复后首跳把**断网期间的全部增量一次性上报**。
+**行为**：断网只影响上报通道，采集与快照组装是纯内存操作（`playedDelta` 累加 `videoSource.js:30`、`staySessionMs` 墙钟 `usePlayRecord.js:119、124-126`），**本地累计不停**；期间每跳请求全部失败静默。恢复后首跳把**断网期间的全部增量一次性上报**。
 
 | 时刻 | 事件 | 结果 |
 |----|----|----|
@@ -365,11 +372,11 @@ D1 全部 5 用例（`videoSource.test.js`：差值累加 / seek ≥1s 不计 / 
 
 **验证方法**：Offline 后继续播放至片尾（页面正常播完，无任何报错）→ 恢复网络 → 等一跳 → `curl -s "http://localhost:3000/api/records/video-7092?user_id=s7b-0924"` 可见 played/stay 一次跳到全量、`finished:1`。
 
-**对应测试用例**：**⚠️ 无自动化覆盖**（测试体系无离线模拟用例；机制由 C1 全量快照与 A2 MAX 保证）。
+**对应测试用例**：hook 单测「场景7b 断网中持续播放」（`usePlayRecord.test.js`：连续 3 跳 reject 静默，恢复首跳一次补齐全部累计）+ e2e「场景7b 断网恢复」（`e2e/play-record.e2e.spec.js`：`context.route` 拦截 `POST /api/records/heartbeat` 制造断网——GET 基线路径不同不受影响，断网窗口跨一跳失败且服务端零写入，unroute 后次跳 `GET /api/records/:id` 可见一次补齐）。
 
 ### 7c 断网中退出页面（beacon 双失败 → 自最后成功心跳之后的数据丢失）
 
-**行为**：退出走 0.6 矩阵 beacon 补报；断网下 `navigator.sendBeacon` 返回 false → fallback `fetch keepalive` 也失败 → catch 静默（`usePlayRecord.js:83-85`）。**自最后一条成功心跳之后的全部会话增量丢失**（最大丢失量 = 最后成功心跳到退出的全部增量，断网多久可丢多久，理论上无上界）。下次进入以服务端最后成功值为基线续播——数据不回退（MAX），只是「变少/变旧」。
+**行为**：退出走 0.6 矩阵 beacon 补报；断网下 `navigator.sendBeacon` 返回 false → fallback `fetch keepalive` 也失败 → catch 静默（`usePlayRecord.js:87-89`）。**自最后一条成功心跳之后的全部会话增量丢失**（最大丢失量 = 最后成功心跳到退出的全部增量，断网多久可丢多久，理论上无上界）。下次进入以服务端最后成功值为基线续播——数据不回退（MAX），只是「变少/变旧」。
 
 数值示例：最后成功心跳 T+15（12/12/15）→ T+20 断网续播至 T+40 关页 → 丢失 played ≈20s、stay ≈25s → 下次进入基线仍 {12, 12, 15}，反显 12s 处继续。
 
@@ -383,26 +390,30 @@ D1 全部 5 用例（`videoSource.test.js`：差值累加 / seek ≥1s 不计 / 
 
 | 场景 | 自动化覆盖（资产编号 → 用例） | 缺口 |
 |------|-------------------------------|------|
-| 1 首次进入 | A1 INSERT（`records.test.js`）、A4 零值默认、A5 三态 + e2e「列表三态渲染」 | ⚠️「进入未播满 15s / 秒退补报即产生记录 → 列表变继续播放」场景链路无覆盖 |
-| 2 二次进入 | E2 反显（`Detail.test.js` + e2e「续播反显与 video.js 控制条」）、C2 基线合并 | ⚠️ 秒退 position 归零边界无覆盖（附录 B 边界 1） |
+| 1 首次进入 | A1 INSERT（`records.test.js`）、A4 零值默认、A5 三态 + e2e「列表三态渲染」；「加载完成前秒退零记录」由 ready 守卫单测覆盖（0.8） | ⚠️「就绪后进入未播满 15s 即产生记录 → 列表变继续播放」场景链路无覆盖 |
+| 2 二次进入 | E2 反显（`Detail.test.js` + e2e「续播反显与 video.js 控制条」）、C2 基线合并、ready 守卫 3 用例（秒退边界根治，v1.3.0） | 无（残余亚秒级窗口见附录 B 边界 1，机制上无法用 ready 收口） |
 | 3 播放一些再进入 | C1 + e2e「心跳定时上报」、C2、A2/B3 MAX、E2 | 无 |
 | 4 播完后再进入 | A3/B5 判完永久、B4 position 覆盖、smoke `[4/5]`、手动 §4.1 步骤 4-5 | ⚠️「播完反显片尾 + 拖回重温」端到端链路无覆盖（自动化止于接口层） |
 | 5 拖动进度条 | D1 全部 5 用例（`videoSource.test.js`）+ 手动 §4.2 步骤 3-4 | 无（机制层完整；e2e 无拖动用例，不构成缺口） |
-| 6 暂停 | C6 `pause()/resume()`（注意：是手动暂停心跳，非视频暂停） | ⚠️「视频暂停：心跳不停 / played 平 / stay 涨」无显式用例，仅 spec 决策 #8 口径 + 手动 |
-| 7a 心跳请求失败 | 「心跳失败静默」（`usePlayRecord.test.js`） | 半缺口：「恢复后一次补齐」无专项断言（由 C1+A2 组合保证） |
-| 7b 断网中持续播放 | —— | ⚠️ 无自动化覆盖（无离线模拟） |
+| 6 暂停 | e2e「场景6 暂停」（v1.3.0 新增）+ C6 `pause()/resume()`（注意：是手动暂停心跳，非视频暂停，二者互补） | 无 |
+| 7a 心跳请求失败 | 「心跳失败静默」（`usePlayRecord.test.js`）+ 7b 单测的「恢复首跳一次补齐」专项断言 | 无 |
+| 7b 断网中持续播放 | hook 单测「场景7b 断网中持续播放」+ e2e「场景7b 断网恢复」（route 拦截模拟离线，均为 v1.3.0 新增） | 无 |
 | 7c 断网中退出 | C5 beacon fallback 链单测 | ⚠️ 真实断网退出丢数据无覆盖（真机项，同 features-and-testing 第三部分 #3/#4） |
 
-**缺口计数**：9 行中 **2 行全覆盖**（场景 3、5）、**7 行存在缺口**——其中场景 1/2/4/7c 为「机制已覆盖、场景链路缺」的部分覆盖，场景 6/7b 整体缺，7a 为半缺口。
+**缺口计数**：9 行中 **6 行全覆盖**（场景 2、3、5、6、7a、7b——v1.3.0 新增 ready 守卫 3 用例、场景 6/7b 双层用例、7a 补齐专项断言）、**3 行存在缺口**（1/4 为「机制已覆盖、场景链路缺」的部分覆盖，7c 为真机环境受限项）。
 
 ## 附录 B：已知边界与待扩展配置项
 
-### 边界 1：秒退 position 归零（场景 2，无覆盖）
+### 边界 1：秒退 position 归零（场景 2）——已修复（v1.3.0 ready 守卫）
 
-- 机制：switchable 空源零值兜底（`Detail.vue:37`）× 服务端 position 直接覆盖（`store.js:128`）。
-- 触发：退出补报早于「videojs 初始化 + 反显」完成（hidden beacon / pagehide / unmount 均可触发）。
-- 后果：历史 position 被覆盖为 0（如 30 → 0），下次反显从头；played/stay 因 MAX 不受影响。
-- 根治建议：attach 前快照 position 兜底取 `基线.position`，或采用下方 `startPolicy: 'first-play'`。
+- 修复前机制：switchable 空源零值兜底（`Detail.vue:37`）× 服务端 position 直接覆盖（`store.js:128`）——退出补报早于「内容加载完成」时携带 `position=0` 直接清掉历史续播位置（如 30 → 0），下次反显从头。
+- 修复：`usePlayRecord` 新增可选 `ready?: () => boolean`（0.8），`Detail.vue` 传入 `ready: () => switchable.isAttached()`——未 attach 真实采集源期间（含加载失败态：loadFailed 永不 attach、页面无内容，永不上报）心跳与四条退出路径的补报全部跳过，**加载完成前秒退 = 零上报零污染**；不传 `ready` 行为与 v1.2.5 完全一致。
+- 覆盖：`usePlayRecord.test.js` ready 守卫 3 用例（未就绪 60s 双通道零上报 + unmount 零补报、latest 不更新 / 转就绪后心跳恢复且 payload = 基线+增量 / 未就绪 hidden+pagehide+beforeunload+unmount 四退出路径全零）。
+- 残余窗口（如实）：attach 发生在 videojs 初始化后、`player.ready` 反显**之前**——该亚秒级窗口内（本地实测 <1s，弱网下等于 metadata 加载时长）退出仍会上报 `position=0`。彻底收口需下方 `startPolicy: 'first-play'` 待扩展项（首播激活）或 attach 前快照兜底取 `基线.position`。
+
+### 边界 2：进入即产生记录（业务语义待确认）
+
+任意一次**就绪后**成功上报即 INSERT——含 `played=0 / position=0 / 仅 stay` 的快照与就绪后秒退的零值补报（v1.3.0 起加载完成前的秒退补报已被 ready 守卫拦截，不再产生记录），列表随之从「未开始」变「继续播放」（副标题 `已播 0% · 续播位置 0s`）。需业务确认「进入满 15s 未播放也算继续播放」是否合意；不合意则同以 `first-play` 策略根治。
 
 ### 边界 2：进入即产生记录（业务语义待确认）
 
@@ -410,5 +421,5 @@ D1 全部 5 用例（`videoSource.test.js`：差值累加 / seek ≥1s 不计 / 
 
 ### 待扩展配置项（设计稿未实现，全仓 src/server/e2e 均无对应代码，当前不存在这些分支）
 
-- **`startPolicy: 'mount' | 'first-play'`**：`first-play` 下 hook 挂载后进入 armed 态——不启计时、退出不补报，首次真正播放才激活；用于杜绝「armed 未激活退出」的零值补报，防三态污染（根治边界 1/2）。
-- **`stopPolicy: 'manual' | 'on-ended'`**：`on-ended` 下 ended 触发停跳 + 冻结停留 + 最后一报；现状 ended 仅 `reportNow()` 加发一跳（`Detail.vue:84`），interval 照跑、片尾停留会继续累计 stay。
+- **`startPolicy: 'mount' | 'first-play'`**：`first-play` 下 hook 挂载后进入 armed 态——不启计时、退出不补报，首次真正播放才激活；用于杜绝「armed 未激活退出」的零值补报，防三态污染（根治边界 2 与边界 1 残余窗口）。
+- **`stopPolicy: 'manual' | 'on-ended'`**：`on-ended` 下 ended 触发停跳 + 冻结停留 + 最后一报；现状 ended 仅 `reportNow()` 加发一跳（`Detail.vue:89`），interval 照跑、片尾停留会继续累计 stay。

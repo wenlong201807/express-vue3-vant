@@ -43,7 +43,7 @@
 | C4 | 退出矩阵（4 事件） | 全部事件驱动、绝不由定时器触发：hidden 停跳 + beacon 补报 / visible 重启心跳与停留时钟 / `pagehide` + `beforeunload` beacon 补报 / unmount 先拆定时器与监听再 keepalive 补报 | `src/hooks/usePlayRecord.js`（`onVisibilityChange` / `onPageExit` / `onBeforeUnmount`） | `usePlayRecord.test.js`（四事件逐一断言）；e2e hidden 补报、路由跳转补报两条用例 |
 | C5 | 默认 Reporter 双通道 | `heartbeat` 走 `fetch keepalive`（hidden 中 `ended` 补报不被页面回收取消）；`beacon` 走 `sendBeacon`（Blob + `application/json`），失败/不可用 fallback `fetch keepalive` | `src/hooks/usePlayRecord.js`（`createDefaultReporter`） | `usePlayRecord.test.js`（sendBeacon 与 keepalive 断言）；`第二部分 §4` 页面层切后台/关页 |
 | C6 | 返回值句柄 | `{ pause, resume, reportNow, latest }`：手动暂停/恢复心跳、立即上报（供视频 `ended` 调用）、当前快照（调试/反显） | `src/hooks/usePlayRecord.js`（返回值） | `usePlayRecord.test.js`（pause/resume/reportNow）；`Detail.test.js`（ended 即时报） |
-| C7 | 双扩展点 | `source: PlaySource`（采集适配器）与 `reporter: Reporter`（上报通道）均可注入替换，`interval` / `onReport` 可配置；接口不变则 hook 与服务端零改动 | `src/hooks/usePlayRecord.js`（接口定义 + options） | `usePlayRecord.test.js`（mock reporter 注入全程）；D 组两适配器即接口实现实证 |
+| C7 | 双扩展点 | `source: PlaySource`（采集适配器）与 `reporter: Reporter`（上报通道）均可注入替换，`interval` / `ready` / `onReport` 可配置（`ready` 为 v1.3.0 就绪守卫：未就绪期间心跳与四条退出路径补报全跳过，零上报零污染）；接口不变则 hook 与服务端零改动 | `src/hooks/usePlayRecord.js`（接口定义 + options） | `usePlayRecord.test.js`（mock reporter 注入全程 + ready 守卫 3 用例）；D 组两适配器即接口实现实证 |
 
 ### D 采集适配器（`src/hooks/sources/`）
 
@@ -67,7 +67,7 @@
 | 编号 | 功能 | 一句话说明 | 实现位置（文件） | 验证方式（对应测试/接口） |
 |------|------|------------|------------------|---------------------------|
 | F1 | 单仓双进程 dev | `npm run dev` 以 concurrently 并起 Express(:3000) 与 Vite(:5173)；Vite 将 `/api`、`/source` 代理到 3000；`/source` 同时为静态视频目录 | `package.json`、`vite.config.mjs`、`server/index.js` | 手动：`npm run dev` 后访问 5173；`第二部分 §4` |
-| F2 | 三层测试 + 冒烟 | 后端 node:test 接口测试（15）/ vitest hook 与组件单测（35）/ Playwright e2e（5）/ curl 冒烟，四类共九项资产 | `package.json` scripts + 各测试文件 | `第二部分 §2`、`§3` 全量回归 |
+| F2 | 三层测试 + 冒烟 | 后端 node:test 接口测试（15）/ vitest hook 与组件单测（39）/ Playwright e2e（7）/ curl 冒烟，四类共九项资产 | `package.json` scripts + 各测试文件 | `第二部分 §2`、`§3` 全量回归 |
 | F3 | 测试资产归档索引 | 九项资产在索引中逐项登记路径、覆盖点、执行命令、前置条件、预期结果，任何人可二次执行 | `docs/testing/README.md` | 按索引逐项复制命令执行（即 `第二部分 §2`） |
 
 **功能条目合计：29 条**（A6 + B6 + C7 + D2 + E5 + F3）。
@@ -106,9 +106,9 @@
 #### 3）`src/hooks/__tests__/usePlayRecord.test.js` — 核心 hook 单测
 
 - 命令：`npx vitest run src/hooks/__tests__/usePlayRecord.test.js`
-- 覆盖功能点：C1（心跳节奏 + 基线+增量快照）、C2（基线合并与竞态自纠）、C3（hidden 停留冻结）、C4（退出矩阵四事件）、C5（默认 Reporter 的 sendBeacon / fetch keepalive）、C6（pause/resume/reportNow）、C7（mock reporter 注入）、心跳失败静默、onReport 抛错清理仍完成
+- 覆盖功能点：C1（心跳节奏 + 基线+增量快照）、C2（基线合并与竞态自纠）、C3（hidden 停留冻结）、C4（退出矩阵四事件）、C5（默认 Reporter 的 sendBeacon / fetch keepalive）、C6（pause/resume/reportNow）、C7（mock reporter 注入 + ready 守卫：未就绪双通道零上报与 latest 不动、转就绪恢复基线+增量、未就绪四退出路径全零）、心跳失败静默、场景7b 断网恢复（连续 3 跳 reject 静默、恢复首跳一次补齐全部累计）、onReport 抛错清理仍完成
 - 前置条件：`npm install`；无需起后端（fetch 已 stub）
-- 预期输出：`Tests  15 passed (15)`
+- 预期输出：`Tests  19 passed (19)`
 
 #### 4）`src/hooks/__tests__/videoSource.test.js` — 视频采集适配器单测
 
@@ -141,9 +141,9 @@
 #### 8）`e2e/play-record.e2e.spec.js` — Playwright 端到端
 
 - 命令：`npm run test:e2e`
-- 覆盖功能点：C1/C2（真实播放 17s 后三指标经 HTTP 增长）、C3/C4（hidden beacon 补报且 hidden 期间无定时器上报；路由跳转补报）、A4/A5/B6（列表三态黑盒校验）、E1（三态渲染）、E2（续播反显 currentTime = 服务端 position、`.vjs-play-control` / `button.vjs-playback-rate` 存在）
+- 覆盖功能点：C1/C2（真实播放 17s 后三指标经 HTTP 增长）、C3/C4（hidden beacon 补报且 hidden 期间无定时器上报；路由跳转补报）、场景6 暂停（视频暂停后心跳不停：played 相对暂停时刻 ±0.5 冻结、stay 每跳 ≈+15、updated_at 持续变新——spec 决策 #8 黑盒实证）、场景7b 断网恢复（`context.route` 拦截 `POST /api/records/heartbeat` 模拟断网跨一跳失败且服务端零写入，unroute 后次跳一次补齐断网期间累计）、A4/A5/B6（列表三态黑盒校验）、E1（三态渲染）、E2（续播反显 currentTime = 服务端 position、`.vjs-play-control` / `button.vjs-playback-rate` 存在）
 - 前置条件：本机已装 Google Chrome（`channel: 'chrome'`）；3000/5173 端口空闲——**先停掉手工 dev 进程**（webServer 自动起停前后端）；无需手动准备数据（各用例用带时间戳的独立 userid）
-- 预期输出：`5 passed`
+- 预期输出：`7 passed`
 
 #### 9）`scripts/smoke.sh` — curl 冒烟
 
@@ -173,8 +173,8 @@ npm run smoke
 
 ```
 npm run test:server   →  # tests 15  # pass 15  # fail 0
-npm run test:unit     →  Tests  35 passed (35)
-npm run test:e2e      →  5 passed
+npm run test:unit     →  Tests  39 passed (39)
+npm run test:e2e      →  7 passed
 npm run smoke         →  SMOKE OK
 ```
 
@@ -229,26 +229,26 @@ npm run smoke         →  SMOKE OK
 
 ## 第三部分：测试通过状态报告
 
-- 报告基准：tag `v1.2.5`（`mai` 分支），2026-09-23 全量回归实跑
+- 报告基准：`v1.3.0`（分支 `mai`），2026-09-24 全量回归实跑
 - 结论先行：**当前失败用例数为 0**（四层测试全绿）；「未通过清单」里没有失败项，只有**未覆盖项**（无自动化用例）与**环境受限项**（本地无法自动化），逐条如实列出
 
-### 1. 通过测试的功能（全量回归实跑证据，2026-09-23）
+### 1. 通过测试的功能（全量回归实跑证据，2026-09-24）
 
 | 层 | 命令 | 实跑结果 |
 |----|------|---------|
 | 后端接口/存储 | `npm run test:server` | `# tests 15 / # pass 15 / # fail 0` |
-| hook 与组件单测 | `npm run test:unit` | `Test Files 5 passed (5) / Tests 35 passed (35)` |
-| 端到端（真 Chrome + 真前后端） | `npm run test:e2e` | `5 passed (37.6s)` |
+| hook 与组件单测 | `npm run test:unit` | `Test Files 5 passed (5) / Tests 39 passed (39)` |
+| 端到端（真 Chrome + 真前后端） | `npm run test:e2e` | `7 passed (约 1.9m)` |
 | 冒烟（curl 三/四接口串联） | `npm run smoke` | `[1/5]`…`[5/5]` → `SMOKE OK` |
 
 **按功能编号的通过映射**（29 条功能 = 27 条有自动化直接断言 + 2 条手动）：
 
 - A1-A6、B1-B6（后端 12 条）：全部通过 —— `records.test.js`（12 用例）+ `store.test.js`（3 用例）+ smoke 5 段
-- C1-C7（核心 hook 7 条）：全部通过 —— `usePlayRecord.test.js`（15 用例，含退出矩阵四事件、基线竞态、keepalive/beacon 双通道、onReport 抛错加固）
+- C1-C7（核心 hook 7 条）：全部通过 —— `usePlayRecord.test.js`（19 用例，含退出矩阵四事件、基线竞态、keepalive/beacon 双通道、onReport 抛错加固、v1.3.0 ready 守卫 3 用例与场景7b 断网恢复一次补齐）
 - D1-D2（适配器 2 条）：全部通过 —— `videoSource`（5）+ `articleSource`（5）
 - E1-E4（页面 4 条）：全部通过 —— `List.test.js`（3）+ `Detail.test.js`（7，含 v1.2.5 加固两用例）+ e2e 真实浏览器链路
 - F2-F3（测试资产 2 条）：全部通过 —— 本报告的实跑即验证
-- 关键行为点抽查证据：MAX 幂等重发不变 / 乱序不回退 / 95% 判完边界（58.4117 含等号）与永久性 / 零值默认非 404 / 三态聚合 / hidden 补报且无定时器上报 / 路由跳转补报 / 续播反显 currentTime=服务端 position / seek ≥1s 不计时长 / 2x 倍速双指标分离——均有对应通过用例（见第二部分 §2 逐项映射）
+- 关键行为点抽查证据：MAX 幂等重发不变 / 乱序不回退 / 95% 判完边界（58.4117 含等号）与永久性 / 零值默认非 404 / 三态聚合 / hidden 补报且无定时器上报 / 路由跳转补报 / 续播反显 currentTime=服务端 position / seek ≥1s 不计时长 / 2x 倍速双指标分离 / 未就绪期间零上报（v1.3.0 ready 守卫）/ 视频暂停心跳不停 played 冻结 stay 涨（场景6 e2e）/ 断网恢复一次补齐（场景7b 单测+e2e）——均有对应通过用例（见第二部分 §2 逐项映射）
 
 ### 2. 未通过 / 未覆盖清单（如实亮牌）
 
