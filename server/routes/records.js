@@ -27,6 +27,23 @@ export default function recordsRouter(store) {
     return res.json({ ok: true })
   })
 
+  // 存储内全部播放记录当前最新快照，按 updated_at 降序（v1.1.0 新增，供黑盒查看/排查）
+  router.get('/records', (_req, res) => {
+    const records = [...store.records.values()]
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .map(({ user_id, content_id, played_sec, position, stay_sec, finished, first_report_at, updated_at }) => ({
+        user_id,
+        content_id,
+        played_sec,
+        position,
+        stay_sec,
+        finished,
+        first_report_at,
+        updated_at
+      }))
+    return res.json({ count: records.length, records })
+  })
+
   // 按内容 id 查询播放记录，供详情页反显续播（spec §6.2）
   router.get('/records/:contentId', (req, res) => {
     const { contentId } = req.params

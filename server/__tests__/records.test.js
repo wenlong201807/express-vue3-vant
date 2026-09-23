@@ -1,7 +1,8 @@
 /**
- * 功能说明：后端 3 接口（heartbeat / records 查询 / contents 聚合）全量接口测试
+ * 功能说明：后端 4 接口（heartbeat / records 全量快照 / records 查询 / contents 聚合）全量接口测试
  *   - heartbeat：INSERT/UPDATE 分支、MAX 幂等（同快照重发不变）、乱序不回退、position 覆盖、
  *     视频/图文各自 95% 播完判定、finished 永久性、必传字段 400、未知内容 404
+ *   - GET /api/records：存储内全部记录快照，count + updated_at 降序
  *   - GET /api/records/:contentId：空记录返回零值默认记录（HTTP 200，不做 404）
  *   - GET /api/contents：三态 status 聚合（not_started / continue / finished）
  * 运行命令：npm run test:server   （或 node --test server/__tests__/records.test.js）
@@ -200,4 +201,32 @@ test('GET records 缺 user_id 时服务端缺省 guest', async (t) => {
   const res = await fetch(`${api.base}/api/records/article-002`)
   const json = await res.json()
   assert.equal(json.position, 10)
+})
+
+test('GET /api/records：心跳两笔后返回 count 与 updated_at 降序 records', async (t) => {
+  const api = await startApi()
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
+
+  await postHeartbeat(api, { user_id: 'first', content_id: 'video-7092', played_sec: 5, position: 5, stay_sec: 6, client_ts: 13 })
+  await new Promise((resolve) => setTimeout(resolve, 5))   // 保证两笔 updated_at 严格可分先后
+  await postHeartbeat(api, { user_id: 'second', content_id: 'article-001', played_sec: 0, position: 96, stay_sec: 10, client_ts: 14 })
+
+  const res = await fetch(`${api.base}/api/records`)
+  assert.equal(res.status, 200)
+  const json = await res.json()
+  assert.equal(json.count, 2)
+  assert.equal(json.records.length, 2)
+
+  // 降序：后上报的 second 在前
+  assert.equal(json.records[0].user_id, 'second')
+  assert.equal(json.records[0].content_id, 'article-001')
+  assert.equal(json.records[1].user_id, 'first')
+  assert.ok(json.records[0].updated_at >= json.records[1].updated_at)
+
+  // 每条快照字段齐：含 first_report_at，且 second 的图文 96 ≥ 95 已判完
+  for (const key of ['user_id', 'content_id', 'played_sec', 'position', 'stay_sec', 'finished', 'first_report_at', 'updated_at']) {
+    assert.ok(key in json.records[0], `records[0] 缺少字段 ${key}`)
+  }
+  assert.equal(json.records[0].finished, 1)
+  assert.equal(json.records[0].first_report_at, json.records[0].updated_at)
 })

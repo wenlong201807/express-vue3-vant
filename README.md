@@ -39,6 +39,7 @@ npm run dev   # concurrently 并起 Express(:3000) 与 Vite(:5173)
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | POST | `/api/records/heartbeat` | 心跳上报与退出补报共用的唯一写入口 |
+| GET | `/api/records` | 存储内全部播放记录当前最新快照（`count` + 按 `updated_at` 降序 `records`），供黑盒查看 / 排查 |
 | GET | `/api/records/:contentId?user_id=` | 查播放记录供续播反显；无记录返回零值默认，不做 404 |
 | GET | `/api/contents?user_id=` | 内容列表 + 播放状态三态聚合（列表页数据源） |
 
