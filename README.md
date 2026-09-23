@@ -3,7 +3,7 @@
 嵌入企业微信 WebView 的 H5 应用：采集用户对视频 / 图文内容的「播放时长、播放位置、页面停留时间」三项指标，
 经心跳机制上报落库，支撑列表页续播状态反显与详情页续播定位。
 
-后端 Express 5 + better-sqlite3（Node ≥ 20），前端 Vue 3 + Vite 5 + Vant 4 + TypeScript + video.js 8，单仓库管理。
+后端 Express 5 + 内存固定源数据存储（Node ≥ 20），前端 Vue 3 + Vite 5 + Vant 4 + TypeScript + video.js 8，单仓库管理。
 
 ## 功能特性
 
@@ -31,7 +31,7 @@ npm run dev   # concurrently 并起 Express(:3000) 与 Vite(:5173)
 | `npm run build` | vue-tsc 类型检查 + vite 构建 |
 | `npm run test:server` | 后端接口测试（node --test） |
 | `npm run test:unit` | hook / 组件单测（vitest run） |
-| `npm run test:e2e` | Playwright e2e（自动起停前后端，独立测试库） |
+| `npm run test:e2e` | Playwright e2e（自动起停前后端） |
 | `npm run smoke` | curl 冒烟三接口（需 dev:server 在跑） |
 
 ## 接口速览
@@ -67,7 +67,7 @@ npm run dev   # concurrently 并起 Express(:3000) 与 Vite(:5173)
 全量回归：
 
 ```bash
-npm run dev:server          # 先起后端（smoke 依赖；e2e 自管端口与独立库，跑 e2e 前先停手工 dev 进程）
+npm run dev:server          # 先起后端（smoke 依赖；e2e 自动起停并独占 3000/5173 端口，跑 e2e 前先停手工 dev 进程）
 npm run test:server && npm run test:unit && npm run test:e2e && npm run smoke
 ```
 
@@ -79,5 +79,6 @@ npm run test:server && npm run test:unit && npm run test:e2e && npm run smoke
 ## 企业微信嵌入注意
 
 - 宿主需把 `userid` 拼入页面 URL（如 `.../list?userid=u1`），前端读取 query 随心跳透传，缺失按 `guest` 记。
+- 播放记录为服务端内存存储（不落盘），服务重启即清零，宿主无需提供可写数据目录。
 - 页面关闭 / 切后台由 `pagehide` + `navigator.sendBeacon` 兜底补报，无需宿主额外回调。
 - 样例视频为 H.264，需带专有编解码的 Chrome 内核（企微内置内核可播）；Playwright 自带 Chromium 不带，故 e2e 用 `channel: 'chrome'` 跑本机 Chrome。

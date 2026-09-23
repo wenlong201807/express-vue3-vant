@@ -1,19 +1,18 @@
 /**
- * 功能说明：播放记录心跳系统 e2e（真实前后端 + 真实 sqlite 落库校验）
- *   - 心跳定时上报：播放 17s 后 sqlite 三指标（played_sec/position/stay_sec）均 > 0
+ * 功能说明：播放记录心跳系统 e2e（真实前后端，断言走 HTTP 黑盒）
+ *   - 心跳定时上报：播放 17s 后三指标（played_sec/position/stay_sec）均 > 0（经 GET /api/records/:contentId 校验）
  *   - 退出补报与心跳停止：visibilitychange hidden 触发 beacon 补报，hidden 期间无定时器上报；
  *     路由跳转（unmount）触发补报
  *   - 列表页三态渲染（not_started/continue/finished）
  *   - 详情页续播反显（ready 后 currentTime = 服务端 position）
  *   - video.js 渲染（.vjs-play-control / .vjs-playback-rate 控制条元素存在）
  * 运行命令：npm run test:e2e
- * 前置条件：无需手动起服务（webServer 自动拉起 dev:server/dev:client，独立库 e2e/e2e.db）；
+ * 前置条件：无需手动起服务（webServer 自动拉起 dev:server/dev:client，播放记录为服务端内存存储）；
  *   需本机安装 Google Chrome（内置 Chromium 无 H.264 无法播放 mp4）；运行前停掉手工 dev 进程
  */
 import { test, expect } from '@playwright/test'
-import Database from 'better-sqlite3'
 
-const E2E_DB = 'e2e/e2e.db'
+const API_BASE = 'http://localhost:3000'
 const VIDEO_ID = 'video-7092'
 const ts = Date.now()
 
@@ -25,19 +24,17 @@ interface PlayRow {
   updated_at: string
 }
 
-function readRecord(userId: string, contentId: string): PlayRow | undefined {
-  const db = new Database(E2E_DB)
-  try {
-    return db
-      .prepare('SELECT played_sec, position, stay_sec, finished, updated_at FROM play_records WHERE user_id = ? AND content_id = ?')
-      .get(userId, contentId) as PlayRow | undefined
-  } finally {
-    db.close()
-  }
+// HTTP 黑盒读取播放记录：GET /api/records/:contentId。
+// 空记录时接口返回零值默认（HTTP 200），以 updated_at 空串区分「从未上报」→ 返回 null。
+async function fetchRecord(userId: string, contentId: string): Promise<PlayRow | null> {
+  const res = await fetch(`${API_BASE}/api/records/${contentId}?user_id=${encodeURIComponent(userId)}`)
+  expect(res.ok).toBeTruthy()
+  const j = (await res.json()) as PlayRow
+  return j.updated_at === '' ? null : j
 }
 
 async function seedRecordViaApi(userId: string, body: Record<string, number | string>): Promise<void> {
-  const res = await fetch('http://localhost:3000/api/records/heartbeat', {
+  const res = await fetch(`${API_BASE}/api/records/heartbeat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, content_id: VIDEO_ID, client_ts: Date.now(), ...body })
@@ -45,13 +42,13 @@ async function seedRecordViaApi(userId: string, body: Record<string, number | st
   expect(res.ok).toBeTruthy()
 }
 
-test('心跳定时上报：播放数秒后 sqlite 三指标增长', async ({ page }) => {
+test('心跳定时上报：播放数秒后三指标增长', async ({ page }) => {
   const user = `e2e-hb-${ts}`
   await page.goto(`/detail/${VIDEO_ID}?userid=${user}`)
   await page.click('.vjs-big-play-button')
   await page.waitForTimeout(17000)   // 心跳默认 15s 一跳
-  const rec = readRecord(user, VIDEO_ID)
-  expect(rec).toBeDefined()
+  const rec = await fetchRecord(user, VIDEO_ID)
+  expect(rec).not.toBeNull()
   expect(rec!.played_sec).toBeGreaterThan(0)
   expect(rec!.position).toBeGreaterThan(0)
   expect(rec!.stay_sec).toBeGreaterThan(0)
@@ -67,14 +64,14 @@ test('退出补报（hidden）：beacon 补报发生，且 hidden 期间无任�
     document.dispatchEvent(new Event('visibilitychange'))
   })
   await page.waitForTimeout(500)
-  const rec = readRecord(user, VIDEO_ID)
-  expect(rec).toBeDefined()                 // beacon 补报已落库
+  const rec = await fetchRecord(user, VIDEO_ID)
+  expect(rec).not.toBeNull()                 // beacon 补报已写入
   expect(rec!.played_sec).toBeGreaterThan(0)
 
   const updated = rec!.updated_at
   const played = rec!.played_sec
   await page.waitForTimeout(5000)           // hidden 期间：心跳停止、停留冻结
-  const rec2 = readRecord(user, VIDEO_ID)
+  const rec2 = await fetchRecord(user, VIDEO_ID)
   expect(rec2!.updated_at).toBe(updated)    // 无新上报
   expect(rec2!.played_sec).toBe(played)
 })
@@ -89,8 +86,8 @@ test('退出补报（路由跳转）：详情页返回列表触发补报', async
   await page.click('.van-nav-bar__left')    // 返回 → unmount → 补报
   await page.waitForSelector('.van-cell')
   await page.waitForTimeout(500)
-  const rec = readRecord(user, VIDEO_ID)
-  expect(rec).toBeDefined()
+  const rec = await fetchRecord(user, VIDEO_ID)
+  expect(rec).not.toBeNull()
   expect(rec!.played_sec).toBeGreaterThan(0)
 })
 

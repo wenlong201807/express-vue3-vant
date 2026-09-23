@@ -13,8 +13,7 @@ export default defineConfig({
     {
       command: 'npm run dev:server',
       url: 'http://localhost:3000/api/health',
-      reuseExistingServer: false,
-      env: { DB_PATH: 'e2e/e2e.db' }
+      reuseExistingServer: false
     },
     {
       command: 'npm run dev:client',
