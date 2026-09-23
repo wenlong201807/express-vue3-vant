@@ -9,6 +9,8 @@
  *   - onReport 在 unmount 补报路径抛错不阻断卸载清理（interval 停 + 三监听移除）
  *   - createDefaultReporter：sendBeacon 可用走 beacon、不可用 fallback fetch keepalive；
  *     heartbeat fetch 带 keepalive（页面回收不取消 hidden 中 reportNow 的快照）
+ *   - ready 守卫（v1.3.0）：未就绪期间心跳与四条退出路径补报双通道全零、latest 不更新；
+ *     转就绪后下一跳恢复且 payload = 基线 + 全部会话增量
  * 运行命令：npx vitest run src/hooks/__tests__/usePlayRecord.test.js
  * 前置条件：无需起后端（fetch 以 stub 返回历史基线零值/固定基线）；jsdom 环境由 vite.config test.environment 提供
  */
@@ -43,11 +45,11 @@ function setVisibility(state) {
 
 let fetchMock
 
-function mountHook(source, reporter, onReport) {
+function mountHook(source, reporter, onReport, extraOptions = {}) {
   let handle
   const Comp = defineComponent({
     setup() {
-      handle = usePlayRecord({ contentId: 'c1', userId: 'u1', interval: 15000, source, reporter, onReport })
+      handle = usePlayRecord({ contentId: 'c1', userId: 'u1', interval: 15000, source, reporter, onReport, ...extraOptions })
       return () => h('div')
     }
   })
@@ -246,6 +248,62 @@ describe('手动控制与返回值', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(handle.latest.value).toMatchObject({ played_sec: 13, position: 7, stay_sec: 100 })
     wrapper.unmount()
+  })
+})
+
+describe('ready 守卫（内容未就绪期间零上报零污染，v1.3.0）', () => {
+  it('未就绪期间 interval 照跑但每跳直接跳过：零心跳零 beacon、latest 不更新，unmount 补报同样为零', async () => {
+    const { reporter, mocks } = makeMockReporter()
+    let readyFlag = false
+    const { wrapper, handle } = mountHook(makeSource(3, 7), reporter, undefined, { ready: () => readyFlag })
+
+    await vi.advanceTimersByTimeAsync(0)             // 基线 GET 照常（ready 只拦上报，不拦基线拉取）
+    expect(handle.latest.value).toMatchObject({ played_sec: 13, stay_sec: 100 })   // 基线落定刷新 latest
+
+    await vi.advanceTimersByTimeAsync(60000)         // 4 跳全部被 ready 守卫拦截（interval 节奏不受影响）
+    expect(mocks.heartbeat).not.toHaveBeenCalled()
+    expect(mocks.beacon).not.toHaveBeenCalled()
+    expect(handle.latest.value.stay_sec).toBe(100)   // latest 不更新（仍为基线落定时的快照）
+
+    wrapper.unmount()                                // 未就绪退出：补报也跳过（未就绪快照 position=0 会覆盖历史续播位置）
+    expect(mocks.beacon).not.toHaveBeenCalled()
+    expect(mocks.heartbeat).not.toHaveBeenCalled()
+  })
+
+  it('转就绪后下一跳恢复上报，payload = 基线 + 全部会话增量（含未就绪期间的停留墙钟）', async () => {
+    const { reporter, mocks } = makeMockReporter()
+    let readyFlag = false
+    const { wrapper } = mountHook(makeSource(3, 7), reporter, undefined, { ready: () => readyFlag })
+
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(30000)         // 未就绪：两跳被拦
+    expect(mocks.heartbeat).not.toHaveBeenCalled()
+
+    readyFlag = true
+    await vi.advanceTimersByTimeAsync(15000)         // 就绪后下一跳：恢复上报
+    expect(mocks.heartbeat).toHaveBeenCalledTimes(1)
+    expect(mocks.heartbeat.mock.calls[0][0]).toMatchObject({
+      played_sec: 13,                                // 基线 10 + 会话增量 3
+      position: 7,
+      stay_sec: 145                                  // 基线 100 + 可见墙钟 45s（未就绪期间墙钟照累计）
+    })
+    wrapper.unmount()
+  })
+
+  it('未就绪期间 hidden / pagehide / beforeunload / unmount 四条退出路径的 beacon 补报全部跳过', async () => {
+    const { reporter, mocks } = makeMockReporter()
+    const { wrapper } = mountHook(makeSource(3, 7), reporter, undefined, { ready: () => false })
+
+    await vi.advanceTimersByTimeAsync(0)
+    setVisibility('hidden')                          // 停 interval + 冻结停留时钟照常（生命周期簿记不受守卫影响）
+    window.dispatchEvent(new Event('pagehide'))
+    window.dispatchEvent(new Event('beforeunload'))
+    expect(mocks.beacon).not.toHaveBeenCalled()      // 三条退出路径的补报均被拦截
+    expect(mocks.heartbeat).not.toHaveBeenCalled()
+
+    wrapper.unmount()                                // 第四条（unmount）同样为零
+    expect(mocks.beacon).not.toHaveBeenCalled()
+    expect(mocks.heartbeat).not.toHaveBeenCalled()
   })
 })
 

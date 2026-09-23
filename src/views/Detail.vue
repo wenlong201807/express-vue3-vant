@@ -28,7 +28,7 @@ let activeSource = null
 /**
  * 内容类型在异步加载后才可知，而 usePlayRecord 必须在 setup 内同步调用。
  * 以可切换的空采集源兜底，加载完成后 attach 真实 source（PlaySource 接口不变）。
- * @returns {{ source: import('../hooks/usePlayRecord').PlaySource, attach: (inner: import('../hooks/usePlayRecord').DisposablePlaySource) => void }}
+ * @returns {{ source: import('../hooks/usePlayRecord').PlaySource, attach: (inner: import('../hooks/usePlayRecord').DisposablePlaySource) => void, isAttached: () => boolean }}
  */
 function createSwitchableSource() {
   let inner = null
@@ -38,13 +38,18 @@ function createSwitchableSource() {
     },
     attach(next) {
       inner = next
+    },
+    isAttached() {
+      return inner !== null
     }
   }
 }
 
 const switchable = createSwitchableSource()
 // hook 先注册 onBeforeUnmount：unmount 时先补报（此时 source 仍存活），再由下方清理播放器
-const handle = usePlayRecord({ contentId, userId, source: switchable.source })
+// ready 守卫（v1.3.0）：加载完成 attach 真实采集源之前（含加载失败态，永不 attach）心跳与
+// 四条退出路径的补报全部跳过——未就绪零值快照 position=0 会直接覆盖服务端历史续播位置
+const handle = usePlayRecord({ contentId, userId, source: switchable.source, ready: () => switchable.isAttached() })
 
 onMounted(async () => {
   try {

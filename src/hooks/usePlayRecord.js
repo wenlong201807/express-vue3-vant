@@ -31,6 +31,9 @@ import { onBeforeUnmount, ref, unref } from 'vue'
  * @property {number} [interval]                 心跳间隔 ms，默认 15000
  * @property {PlaySource} source                 扩展点1：采集适配器
  * @property {Reporter} [reporter]               扩展点2：上报通道，默认实现 fetch 心跳 + sendBeacon 退出补报；测试可注入 mock
+ * @property {() => boolean} [ready]             内容就绪守卫（v1.3.0）：返回 false 期间心跳每跳与四条退出路径的
+ *                                              beacon 补报统一跳过（零上报零污染），latest/onReport 一并不触发；
+ *                                              缺省或非函数 = 恒就绪，行为与旧版完全一致
  * @property {(payload: HeartbeatPayload) => void} [onReport]
  */
 
@@ -142,9 +145,14 @@ export function usePlayRecord(options) {
   }
 
   /**
+   * ready 守卫（v1.3.0）为何 beacon 也要拦：未就绪快照走 switchable 空源兜底，position=0——
+   * 而服务端 position 直接覆盖不走 MAX（store.upsertRecord），一次未就绪补报即把历史续播位置
+   * 清零（scenarios-heartbeat.md 附录 B 边界 1），故两条通道必须在同一个人口统一拦截。
+   * interval 照跑（跳过时仅本函数入口 return，调度节奏不受影响），转就绪后下一跳自动恢复。
    * @param {('heartbeat' | 'beacon')} channel
    */
   function emitAndReport(channel) {
+    if (typeof options.ready === 'function' && !options.ready()) return
     const payload = makeSnapshot()
     latest.value = payload
     if (channel === 'heartbeat') {
