@@ -166,6 +166,13 @@ onBeforeUnmount(() => {
 .video-box :deep(.video-js) {
   display: block;
   width: 100%;
+  /* 竖屏视频限高：防止控制条被顶出视口（9:16 视频在 375px 宽下高约 960px，控制条贴底则不可见） */
+  max-height: 70vh;
+  background: #000;
+}
+/* 等比缩放：限高后视频上下留黑边，不拉伸变形 */
+.video-box :deep(.vjs-tech) {
+  object-fit: contain;
 }
 
 /* 信息卡：宋体标题 + 类型/时长行 */
