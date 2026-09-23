@@ -77,6 +77,7 @@ npm run test:server && npm run test:unit && npm run test:e2e && npm run smoke
 - 实施计划：`docs/superpowers/plans/2026-09-22-play-record-heartbeat.md`
 - 功能清单与完整测试说明（功能-测试映射 / 手动验收 / FAQ）：`docs/features-and-testing.md`
 - 详情页心跳七大场景行为说明（时间线 / 字段公式 / 落库 / 验证，逐条对照代码）：`docs/scenarios-heartbeat.md`
+- Wireshark 使用 SOP（通用篇 + 心跳三场景实测专章，证据入档 `docs/wireshark-captures/`）：`docs/wireshark-sop.md`
 
 ## 企业微信嵌入注意
 

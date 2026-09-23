@@ -4,6 +4,7 @@
 - 适用仓库：`express-vue3-vant`（分支 mai）
 - 文档性质：以仓库实际代码与测试为准的功能清单 + 测试执行手册。功能条目均给出实现文件与验证方式（编号供全文互相引用）；测试章节所有命令可直接复制执行。
 - 场景行为说明：docs/scenarios-heartbeat.md（七大场景的时间线/字段公式/落库/验证）
+- 网络层实测：docs/wireshark-sop.md（Wireshark 抓 lo0 验证心跳三场景的 SOP，pcapng 证据见 docs/wireshark-captures/）
 
 ---
 
