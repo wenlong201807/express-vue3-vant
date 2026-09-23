@@ -1,0 +1,103 @@
+/**
+ * 「暖纸墨色 · 编辑部/阅读室」主题（移动端 H5，375px 基准）
+ * - 色板：纸感底 + 墨色文字 + 朱砂主色 + 墨绿成功色 + 米色分隔线（无紫色渐变）
+ * - 字体：标题宋体系（600-700 字重），正文 PingFang 系；数字 tabular-nums
+ * - 仅换皮：覆写 Vant CSS 变量与少量组件类样式，不改 Vant 类名与组件语义
+ *   （van-tag--default/primary/success、van-nav-bar__left、van-cell 等 e2e 依赖的选择器全部保留）
+ */
+
+:root {
+  /* —— 自有色板 —— */
+  --paper: #faf6ef;                       /* 纸感页面底 */
+  --surface: #ffffff;                     /* 卡片面 */
+  --ink: #2b2622;                         /* 墨色主文 */
+  --ink-2: #8a8075;                       /* 次级文字 */
+  --ink-3: #6b6156;                       /* 弱底色上的次级文字（对比度补偿） */
+  --accent: #c8401f;                      /* 朱砂：强调 / 进度 / 激活态 */
+  --accent-soft: rgba(200, 64, 31, 0.1);  /* 朱砂淡底（视频徽标） */
+  --green: #3d7a50;                       /* 成功墨绿 */
+  --green-soft: rgba(61, 122, 80, 0.12);  /* 墨绿淡底（图文徽标） */
+  --line: #eee6d9;                        /* 分隔线 */
+  --track: #f0e8d8;                       /* 进度槽 / 骨架底 */
+
+  /* —— 形状与阴影（8 的倍数间距节奏，卡片圆角 14，柔阴影） —— */
+  --radius-card: 14px;
+  --shadow-card: 0 2px 12px rgba(43, 38, 34, 0.06);
+  --page-padding: 16px;
+
+  /* —— 字体 —— */
+  --font-serif: 'Songti SC', 'Noto Serif SC', 'STSong', serif;
+  --font-sans: 'PingFang SC', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  /* —— Vant 变量对齐（只换皮，类名语义不变） —— */
+  --van-border-color: var(--line);                 /* 导航栏 hairline / cell 分隔线统一暖色 */
+  --van-nav-bar-background: var(--paper);          /* 纸底导航 */
+  --van-nav-bar-title-text-color: var(--ink);      /* 墨字标题 */
+  --van-nav-bar-text-color: var(--ink);
+  --van-nav-bar-icon-color: var(--ink);            /* 墨色返回箭头 */
+  --van-tag-primary-color: var(--accent);          /* 继续播放 → 朱砂 */
+  --van-tag-success-color: var(--green);           /* 已播完 → 墨绿 */
+  --van-tag-default-color: #e7ddc9;                /* 未开始 → 暖灰米（文字另覆写） */
+  --van-tag-radius: 999px;                         /* 小圆签 */
+  --van-tag-padding: 0 8px;
+  --van-skeleton-paragraph-background: var(--track); /* 骨架标题+段落 */
+  --van-skeleton-avatar-background: var(--track);    /* 骨架头像 */
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+}
+
+body {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* —— 导航栏重皮：纸底、墨字、宋体标题、细底边（由 --van-border-color 带出） —— */
+.van-nav-bar .van-nav-bar__title {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+/* —— 三态标签重皮（default/primary/success 类名语义保持不变） —— */
+.van-tag {
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+.van-tag--default {
+  color: var(--ink-3);   /* 米底配深字，保证对比度 */
+}
+
+/* —— 内容类型徽标（视频 ▶ 朱砂 / 图文 ≡ 墨绿），List 与 Detail 共用 —— */
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+.type-badge--sm {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.type-badge--video {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.type-badge--article {
+  background: var(--green-soft);
+  color: var(--green);
+}
