@@ -3,6 +3,8 @@
  *   - 心跳定时上报：播放 17s 后三指标（played_sec/position/stay_sec）均 > 0（经 GET /api/records/:contentId 校验）
  *   - 退出补报与心跳停止：visibilitychange hidden 触发 beacon 补报，hidden 期间无定时器上报；
  *     路由跳转（unmount）触发补报
+ *   - 场景6 暂停：视频暂停后心跳不停——played 相对暂停时刻冻结（±0.5 容差）、
+ *     stay 每跳 +15 持续增长、updated_at 持续变新
  *   - 列表页三态渲染（not_started/continue/finished）
  *   - 详情页续播反显（ready 后 currentTime = 服务端 position）
  *   - video.js 渲染（.vjs-play-control / .vjs-playback-rate 控制条元素存在）
@@ -100,6 +102,28 @@ test('退出补报（路由跳转）：详情页返回列表触发补报', async
   const rec = await fetchRecord(user, VIDEO_ID)
   expect(rec).not.toBeNull()
   expect(rec.played_sec).toBeGreaterThan(0)
+})
+
+test('场景6 暂停：视频暂停后心跳不停——played 冻结、stay 持续增长、updated_at 持续变新', async ({ page }) => {
+  const user = `e2e-pause-${ts}`
+  await page.goto(`/detail/${VIDEO_ID}?userid=${user}`)
+  await page.click('.vjs-big-play-button')
+  await page.waitForFunction(() => document.querySelector('video')?.currentTime >= 3, null, { timeout: 20000 })
+  await page.hover('.video-js')
+  await page.click('.vjs-play-control')             // 暂停（spec 决策 #8：心跳定时器照跑）
+  await page.waitForFunction(() => document.querySelector('video')?.paused === true)
+
+  await page.waitForTimeout(16000)                  // 跨首跳：暂停时刻快照已送达
+  const rec1 = await fetchRecord(user, VIDEO_ID)
+  expect(rec1).not.toBeNull()
+  expect(rec1.played_sec).toBeGreaterThan(0)
+
+  await page.waitForTimeout(16000)                  // 再跨一跳：暂停期间心跳仍在发
+  const rec2 = await fetchRecord(user, VIDEO_ID)
+  expect(Math.abs(rec2.played_sec - rec1.played_sec)).toBeLessThanOrEqual(0.5)   // played 相对暂停时刻不再增长
+  expect(rec2.stay_sec - rec1.stay_sec).toBeGreaterThanOrEqual(14.5)             // stay 为可见墙钟，照常每跳 ≈15（±0.5 容差吸收
+                                                                                  // Chrome 定时器毫秒量化带来的提前触发抖动）
+  expect(rec2.updated_at).not.toBe(rec1.updated_at)                              // updated_at 变新 = 心跳未停
 })
 
 test('列表三态渲染：not_started / continue / finished', async ({ page }) => {
