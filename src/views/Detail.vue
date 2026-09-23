@@ -15,6 +15,8 @@ const userId = typeof route.query.userid === 'string' ? route.query.userid : 'gu
 const contentId = route.params.id as string
 
 const content = ref<ContentSummary | null>(null)
+// 纯展示：服务端 position（图文顶部信息条「已读 N%」），不参与任何上报
+const initialPosition = ref(0)
 const videoEl = ref<HTMLVideoElement | null>(null)
 const articleBox = ref<HTMLDivElement | null>(null)
 
@@ -46,6 +48,7 @@ onMounted(async () => {
   const item = items.find((i) => i.content.id === contentId)
   if (!item) return
   const record: PlayRecordResponse = await getRecord(contentId, userId)
+  initialPosition.value = record.position
   content.value = item.content
   await nextTick()
 
@@ -97,33 +100,196 @@ onBeforeUnmount(() => {
 <template>
   <div class="detail">
     <van-nav-bar :title="content?.title ?? '详情'" left-arrow @click-left="router.back()" />
-    <div v-if="content?.type === 'video'" class="video-box">
-      <video ref="videoEl" class="video-js vjs-default-skin vjs-big-play-centered" playsinline></video>
+
+    <!-- 加载态：纸底骨架（content 为空时，与原「加载中」占位同语义） -->
+    <div v-if="!content" class="detail-skeleton">
+      <van-skeleton title :row="4" />
     </div>
-    <div v-else-if="content?.type === 'article'" ref="articleBox" class="article-box">
-      <div class="article-inner" v-html="content.article_html"></div>
-    </div>
-    <van-empty v-else description="加载中" />
+
+    <template v-else>
+      <!-- 视频型：播放器卡片（圆角裁切）+ 信息卡 -->
+      <div v-if="content.type === 'video'" class="video-box">
+        <div class="media-card">
+          <video ref="videoEl" class="video-js vjs-default-skin vjs-big-play-centered" playsinline></video>
+        </div>
+        <section class="info-card">
+          <h1 class="info-card__title">{{ content.title }}</h1>
+          <p class="info-card__meta">
+            <span class="type-badge type-badge--sm type-badge--video" aria-hidden="true">▶</span>
+            <span>视频 · 时长 {{ Math.round(content.duration_sec ?? 0) }} 秒</span>
+          </p>
+        </section>
+      </div>
+
+      <!-- 图文型：顶部信息条 + 沉浸阅读区 -->
+      <div v-else-if="content.type === 'article'" ref="articleBox" class="article-box">
+        <header class="article-head">
+          <h1 class="article-head__title">{{ content.title }}</h1>
+          <p class="article-head__meta">
+            <span class="type-badge type-badge--sm type-badge--article" aria-hidden="true">≡</span>
+            <span>已读 {{ Math.floor(initialPosition) }}%</span>
+          </p>
+        </header>
+        <div class="article-inner" v-html="content.article_html"></div>
+      </div>
+
+      <van-empty v-else description="加载中" />
+    </template>
   </div>
 </template>
 
 <style scoped>
 .detail {
   min-height: 100vh;
+  background: var(--paper);
 }
+
+/* —— 加载骨架 —— */
+.detail-skeleton {
+  padding: 20px var(--page-padding) 0;
+}
+.detail-skeleton :deep(.van-skeleton-avatar),
+.detail-skeleton :deep(.van-skeleton-paragraph) {
+  border-radius: 4px;
+}
+
+/* —— 视频型：播放器卡片（圆角裁切，不触碰 video.js 内部 DOM） —— */
 .video-box {
-  width: 100%;
+  padding: 12px var(--page-padding) 0;
+}
+.media-card {
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: #17130f;
+  box-shadow: var(--shadow-card);
 }
 .video-box :deep(.video-js) {
+  display: block;
   width: 100%;
 }
+
+/* 信息卡：宋体标题 + 类型/时长行 */
+.info-card {
+  margin: 12px var(--page-padding) 0;
+  padding: 18px 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.info-card__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.info-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* —— 图文型：阅读区（纸底沉浸排版） —— */
 .article-box {
   height: calc(100vh - 46px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* 顶部信息条：吸顶，纸感毛玻璃 */
+.article-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 14px 20px 12px;
+  background: rgba(250, 246, 239, 0.94);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+}
+.article-head__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.article-head__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 正文：16px / 1.8 行高 / 段间距 */
 .article-inner {
-  padding: 16px;
+  padding: 20px 20px 56px;
+  font-size: 16px;
   line-height: 1.8;
+  color: var(--ink);
+  word-break: break-word;
+}
+.article-inner :deep(p) {
+  margin: 0 0 1.25em;
+}
+.article-inner :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.article-inner :deep(h1),
+.article-inner :deep(h2),
+.article-inner :deep(h3) {
+  margin: 1.6em 0 0.8em;
+  font-family: var(--font-serif);
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.article-inner :deep(h1:first-child),
+.article-inner :deep(h2:first-child),
+.article-inner :deep(h3:first-child) {
+  margin-top: 0;
+}
+.article-inner :deep(h1) {
+  font-size: 22px;
+}
+.article-inner :deep(h2) {
+  font-size: 19px;
+}
+.article-inner :deep(h3) {
+  font-size: 17px;
+}
+.article-inner :deep(img) {
+  max-width: 100%;
+  border-radius: 10px;
+}
+.article-inner :deep(blockquote) {
+  margin: 1.25em 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.article-inner :deep(a) {
+  color: var(--accent);
+}
+.article-inner :deep(ul),
+.article-inner :deep(ol) {
+  margin: 0 0 1.25em;
+  padding-left: 1.4em;
+}
+.article-inner :deep(li) {
+  margin-bottom: 0.4em;
 }
 </style>
