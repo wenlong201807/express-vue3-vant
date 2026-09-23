@@ -11,6 +11,8 @@
  *     heartbeat fetch 带 keepalive（页面回收不取消 hidden 中 reportNow 的快照）
  *   - ready 守卫（v1.3.0）：未就绪期间心跳与四条退出路径补报双通道全零、latest 不更新；
  *     转就绪后下一跳恢复且 payload = 基线 + 全部会话增量
+ *   - 场景7b 断网恢复：心跳连续 3 跳 reject 静默（无未处理异常），恢复首跳一次补齐
+ *     断网期间全部累计（全量快照口径）
  * 运行命令：npx vitest run src/hooks/__tests__/usePlayRecord.test.js
  * 前置条件：无需起后端（fetch 以 stub 返回历史基线零值/固定基线）；jsdom 环境由 vite.config test.environment 提供
  */
@@ -119,6 +121,39 @@ describe('心跳调度与全量快照', () => {
     expect(heartbeat).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(15000)
     expect(heartbeat).toHaveBeenCalledTimes(2)       // 失败后照常进入下一跳（全量快照自愈口径）
+    wrapper.unmount()
+  })
+
+  it('场景7b 断网中持续播放：连续 3 跳 reject 静默，恢复首跳一次补齐断网期间全部累计', async () => {
+    const heartbeat = vi.fn()
+      .mockRejectedValueOnce(new Error('offline 1'))
+      .mockRejectedValueOnce(new Error('offline 2'))
+      .mockRejectedValueOnce(new Error('offline 3'))
+    const beacon = vi.fn((_p) => {})
+    // 模拟断网期间持续播放：会话增量随播放推进（每跳窗口 +5s），断网只断上报通道、不断采集
+    let played = 0
+    const source = { getSnapshot: () => ({ playedDelta: played, position: played }) }
+    const { wrapper } = mountHook(source, { heartbeat, beacon })
+
+    await vi.advanceTimersByTimeAsync(0)             // 基线落定：played 10 / stay 100
+    played = 5
+    await vi.advanceTimersByTimeAsync(15000)         // 跳1 reject → hook 内 catch 静默（抛出未处理异常则本用例失败）
+    expect(heartbeat).toHaveBeenCalledTimes(1)
+    played = 10
+    await vi.advanceTimersByTimeAsync(15000)         // 跳2 reject
+    played = 15
+    await vi.advanceTimersByTimeAsync(15000)         // 跳3 reject
+    expect(heartbeat).toHaveBeenCalledTimes(3)
+
+    played = 20
+    heartbeat.mockResolvedValueOnce(undefined)
+    await vi.advanceTimersByTimeAsync(15000)         // 跳4 恢复送达
+    expect(heartbeat).toHaveBeenCalledTimes(4)
+    expect(heartbeat.mock.calls[3][0]).toMatchObject({
+      played_sec: 30,                                // 基线 10 + 断网期间全部累计 20（跳1-3 失败期的增量一并补齐）
+      position: 20,
+      stay_sec: 160                                  // 基线 100 + 60s 可见墙钟（断网期间停留照累计）
+    })
     wrapper.unmount()
   })
 

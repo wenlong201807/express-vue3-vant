@@ -5,6 +5,8 @@
  *     路由跳转（unmount）触发补报
  *   - 场景6 暂停：视频暂停后心跳不停——played 相对暂停时刻冻结（±0.5 容差）、
  *     stay 每跳 +15 持续增长、updated_at 持续变新
+ *   - 场景7b 断网恢复：context.route 拦截 POST /api/records/heartbeat（GET 基线路径不同不受影响）
+ *     制造断网，跨一跳失败静默且服务端零写入，unroute 后次跳一次补齐断网期间累计
  *   - 列表页三态渲染（not_started/continue/finished）
  *   - 详情页续播反显（ready 后 currentTime = 服务端 position）
  *   - video.js 渲染（.vjs-play-control / .vjs-playback-rate 控制条元素存在）
@@ -124,6 +126,31 @@ test('场景6 暂停：视频暂停后心跳不停——played 冻结、stay 持
   expect(rec2.stay_sec - rec1.stay_sec).toBeGreaterThanOrEqual(14.5)             // stay 为可见墙钟，照常每跳 ≈15（±0.5 容差吸收
                                                                                   // Chrome 定时器毫秒量化带来的提前触发抖动）
   expect(rec2.updated_at).not.toBe(rec1.updated_at)                              // updated_at 变新 = 心跳未停
+})
+
+test('场景7b 断网恢复：心跳被拦期间播放照常累计，恢复后一次心跳补齐全部增量', async ({ page, context }) => {
+  const user = `e2e-offline-${ts}`
+  // 只拦 POST 心跳写入口；GET 基线 /api/records/:contentId 路径不同，不受影响
+  await context.route('**/api/records/heartbeat', (route) => route.abort())
+  await page.goto(`/detail/${VIDEO_ID}?userid=${user}`)
+  await page.click('.vjs-big-play-button')
+  // 播放到 ≈7s 再暂停（断网期间播放量按 ≥5s 断言，留 2s 余量：起播缓冲造成的 >1s timeupdate
+  // 差值会被 seek 防护丢弃不计入 played，累计值可略低于 currentTime）
+  await page.waitForFunction(() => document.querySelector('video')?.currentTime >= 7, null, { timeout: 20000 })
+  await page.hover('.video-js')
+  await page.click('.vjs-play-control')             // 暂停：把「断网期间播放量」冻结在 ≈7s
+  await page.waitForFunction(() => document.querySelector('video')?.paused === true)
+
+  await page.waitForTimeout(16000)                  // 断网窗口跨 T+15 首跳：fetch 被 abort → 静默
+  expect(await fetchRecord(user, VIDEO_ID)).toBeNull()   // 服务端从未收到任何写入
+
+  await context.unroute('**/api/records/heartbeat')
+  await page.waitForTimeout(16000)                  // 次跳恢复送达：全量快照一次补齐
+  const rec = await fetchRecord(user, VIDEO_ID)
+  expect(rec).not.toBeNull()
+  expect(rec.played_sec).toBeGreaterThanOrEqual(5)      // ≥ 断网期间播放量 5s（失败期的增量一并补齐）
+  expect(rec.position).toBeGreaterThanOrEqual(5)
+  expect(rec.stay_sec).toBeGreaterThanOrEqual(30)       // 停留墙钟断网期间照常累计
 })
 
 test('列表三态渲染：not_started / continue / finished', async ({ page }) => {
