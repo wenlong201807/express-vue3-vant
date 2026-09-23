@@ -6,11 +6,22 @@
 
 ---
 
+## 变更记录
+
+### v1.1.0（2026-09-23）
+
+- 应用户指令移除 SQLite（better-sqlite3），存储层改为内存模拟源数据（`server/store.js`：`SOURCE_CONTENTS` 常量 + `records` Map）。
+- `require.txt` 原述 sqlite 自本版本起由本记录替代。
+- 接口模型（路径/入参/响应/全部写库规则）零变化，前端零改动。
+- 记录纯内存不落盘，服务重启清零（源数据常驻代码不受影响）。
+
+---
+
 ## 1. 背景与需求
 
 仓库 `/Users/zhuwenlong/Desktop/ai-study/express-vue3-vant` 为空仓 greenfield，当前仅包含 `require.txt`（需求描述）与 `source/7092_1790088875.mp4`（样例视频素材），需从零搭建完整系统：
 
-- **后端技术栈**：Express + Node + SQLite
+- **后端技术栈**：Express + Node + 内存模拟源数据（v1.1.0 起替代 SQLite）
 - **前端技术栈**：Vue3 + Vite + Vant + TypeScript
 - **运行环境**：嵌入企业微信 WebView 的 H5 页面
 
@@ -34,12 +45,14 @@
 |---|--------|------|
 | 1 | 退出语义 | 退出时立即停止心跳定时器，改由 `visibilitychange` / `pagehide` 事件 + `navigator.sendBeacon` 一次性补报最后一段数据 |
 | 2 | 上报口径 | 全量快照 + 服务端幂等覆盖；心跳请求失败静默忽略，下次快照自然覆盖自愈 |
-| 3 | 列表状态数据源 | 后端新增第 3 个接口：返回内容列表并聚合每条播放状态（实际共 3 个接口） |
+| 3 | 列表状态数据源 | 后端新增第 3 个接口：返回内容列表并聚合每条播放状态（实际共 3 个接口；v1.1.0 补注：接口数 3 → 4，新增查看接口，见 6.4） |
 | 4 | 用户维度 | URL query 参数传 `userid`，前端读取后随心跳透传，缺省 `'guest'` |
 | 5 | 播完判定 | 服务端判定：`position ≥ 内容时长 × 95%`（视频按秒，图文按滚动百分比 ≥ 95）；`finished` 一旦为 1 永久保持 1 |
 | 6 | 图文口径 | 图文详情页记录页面停留时长 + 阅读滚动位置（百分比），与视频共用同一 hook 与同一张记录表 |
 | 7 | 倍速口径 | 双指标：播放时长 = 视频内容时间（`currentTime` 差值累加），页面停留时长 = 墙钟时间；倍速下两者自然分离 |
 | 8 | 暂停语义 | 页面可见但视频暂停时：不停心跳，停留时长继续累计，播放时长停止累计；仅退出页面才停心跳 |
+
+> 存储介质（sqlite → 内存）变更见文档头「变更记录」v1.1.0，不影响本表任何行为口径。
 
 ---
 
@@ -66,9 +79,9 @@
 
 ```
 express-vue3-vant/
-├── server/                      # Express 后端（JS + better-sqlite3）
+├── server/                      # Express 后端（JS）
 │   ├── index.js                 # 入口：API + /source 静态视频目录
-│   ├── db.js                    # sqlite 建表 + 种子数据（1 条视频 + 2 篇图文）
+│   ├── store.js                 # 内存源数据 + 记录 Map（替代 sqlite）
 │   └── routes/records.js        # 3 个 API 路由
 ├── src/                         # Vue3 + TS 前端
 │   ├── api/record.ts            # 接口封装
@@ -84,7 +97,7 @@ express-vue3-vant/
 
 工程要点：
 
-- 后端选 **better-sqlite3**（同步 API），免去异步连接管理；
+- v1.1.0 起移除 better-sqlite3，存储为内存实现（store.js），无外部依赖；
 - 前端依赖新增 **video.js**（^8.x，自带 TS 类型），视频型详情页使用 video.js 播放器；
 - 开发时 vite dev server 配置 proxy：`/api` → `http://localhost:3000`；
 - 根 `package.json` 单包管理，`scripts` 提供：
@@ -94,11 +107,11 @@ express-vue3-vant/
 
 ---
 
-## 5. 数据模型（SQLite 两张表）
+## 5. 存储模型（内存，v1.1.0）
 
-### 5.1 表 `contents`（内容表，种子数据写入）
+### 5.1 源数据 SOURCE_CONTENTS（模块常量）
 
-种子数据：1 条视频 + 2 篇图文。
+源数据内容：1 条视频 + 2 篇图文。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -110,11 +123,11 @@ express-vue3-vant/
 | `article_html` | TEXT | 图文正文 HTML；视频型为 NULL |
 | `created_at` | TEXT | 创建时间 |
 
-### 5.2 表 `play_records`（播放记录表，`UNIQUE(user_id, content_id)`）
+### 5.2 records：Map<`${user_id}:${content_id}`>
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | 自增主键 |
+| `id` | INTEGER | 条目序号 |
 | `user_id` | TEXT NOT NULL | 用户标识 |
 | `content_id` | TEXT NOT NULL | 内容标识 |
 | `played_sec` | REAL DEFAULT 0 | 累计播放时长，内容时间口径；图文恒 0 |
@@ -123,6 +136,8 @@ express-vue3-vant/
 | `finished` | INTEGER DEFAULT 0 | 0/1，服务端判定，一旦 1 永久 1 |
 | `first_report_at` | TEXT | 首次上报时间 |
 | `updated_at` | TEXT | 最近更新时间 |
+
+记录纯内存，进程重启清零；源数据随代码常驻。
 
 ---
 
@@ -148,6 +163,8 @@ express-vue3-vant/
 字段说明：`user_id` / `content_id` / `played_sec` / `position` / `stay_sec` 为必传；`client_ts`（客户端时间戳）可选。
 
 **服务端写库规则（幂等核心）**：
+
+以下规则语义不变，实现由 SQL 置换为内存操作（`MAX` → `Math.max`，UPSERT → `Map.set`）。
 
 1. 无记录则 INSERT；有记录则 UPDATE（按 `UNIQUE(user_id, content_id)` 定位）。
 2. `played_sec`、`stay_sec` 取 `MAX(库中旧值, 请求新值)` —— 幂等、防重复、防乱序回退。
@@ -211,6 +228,34 @@ express-vue3-vant/
 | 无记录 | `'not_started'` | 未开始 |
 | 有记录且 `finished = 0` | `'continue'` | 继续播放 |
 | `finished = 1` | `'finished'` | 已播完 |
+
+### 6.4 `GET /api/records`（v1.1.0 用户指令新增）
+
+查看当前最新存储数据。无参数。
+
+**响应**：
+
+```json
+{
+  "count": 0,
+  "records": [
+    {
+      "user_id": "string",
+      "content_id": "string",
+      "played_sec": 0,
+      "position": 0,
+      "stay_sec": 0,
+      "finished": 0,
+      "first_report_at": "string",
+      "updated_at": "string"
+    }
+  ]
+}
+```
+
+返回内存 store 中全部记录的当前最新快照，按 `updated_at` 降序。
+
+**用途**：调试 / 查看存储现状——去数据库后无库可查，此接口即「开箱看数据」的窗口。
 
 ---
 
@@ -321,6 +366,7 @@ interface Reporter {
 | 重复/乱序上报 | 服务端 `MAX(played_sec / stay_sec)` 保护，不回退 |
 | position 用户拖回 | 如实覆盖（续播取最后位置的产品语义） |
 | hidden 期间 | 停留时钟冻结，心跳停止，不产生任何定时器上报 |
+| 服务重启 | 内存记录清零（源数据不受影响），客户端下次进入按零基线重新累计；全量快照 + MAX 口径保证历史服务端数据若迁移回持久化存储可无缝衔接 |
 
 ---
 
@@ -342,7 +388,7 @@ interface Reporter {
 
 ### 10.3 e2e（playwright）
 
-- 起真实前后端，模拟播放视频若干秒 → 校验 sqlite 中 `played_sec` / `position` / `stay_sec` 增长；
+- 起真实前后端，模拟播放视频若干秒 → 经 `GET /api/records` 黑盒校验 `played_sec` / `position` / `stay_sec` 三指标增长（v1.1.0 起不再直读库）；
 - 模拟 `visibilitychange` hidden / 路由跳转 → 校验补报发生与心跳停止；
 - 列表页三态渲染、详情页续播反显；
 - video.js 渲染自定义 DOM（`.vjs-*` 类名），e2e 选择器基于 video.js 控制条元素（如 `.vjs-play-button`、`.vjs-playback-rate`）操作播放与倍速。
@@ -359,7 +405,7 @@ interface Reporter {
   - 测试类型；
   - 覆盖的功能点备注（验证什么行为，如「heartbeat MAX 幂等：同一快照重发 played_sec 不变」）；
   - 执行方式（完整可复制粘贴的命令，如 `npx vitest run src/hooks/__tests__/usePlayRecord.test.ts`）；
-  - 前置条件（需先起后端/建库等）；
+  - 前置条件（需先起后端等）；
   - 预期结果。
 - **测试文件头部注释块**：每个测试文件头部写注释块，包含功能说明、运行命令、依赖前置——保证任何人拿到仓库都能二次执行。
 - **冒烟脚本幂等**：`scripts/smoke.sh` 须可重复执行（幂等，重复跑不因残留数据报错）。
@@ -368,7 +414,7 @@ interface Reporter {
 
 ## 11. 验收标准（对照 require.txt 逐条）
 
-1. 后端 express + node + sqlite 提供心跳上报与按视频 id 查询两个核心接口（另加列表聚合接口，已确认）；
+1. 后端 express + node + 内存模拟源数据（v1.1.0）提供心跳上报与按视频 id 查询两个核心接口（另加列表聚合接口，已确认；v1.1.0 起共 3 接口 + 1 查看接口，见 6.4）；
 2. 前端 vue3 + vite + vant + ts 两页面：列表状态三态、详情页视频（**video.js 实现**倍速 + 拖动）/ 图文；
 3. 播放时长 / 播放位置 / 停留时间三指标经心跳机制落库；
 4. 关闭 / 路由跳转 / 切后台三种退出场景均无定时器触发上报，且尾巴数据经 beacon 补报；
