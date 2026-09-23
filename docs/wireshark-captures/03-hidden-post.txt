@@ -1,0 +1,72 @@
+# 03-hidden-post.txt —— hidden 瞬间 beacon 补报完整流跟随（tcp.stream 5，frame 775）
+# 命令：tshark -r 03-hidden.pcapng -z follow,tcp,ascii,5 -q 2>/dev/null
+
+
+===================================================================
+Follow: tcp,ascii
+Filter: tcp.stream eq 5
+Node 0: [::1]:61188
+Node 1: [::1]:3000
+812
+POST /api/records/heartbeat HTTP/1.1
+host: localhost:3000
+connection: close
+content-length: 141
+sec-ch-ua-platform: "macOS"
+user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36
+sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"
+content-type: application/json
+sec-ch-ua-mobile: ?0
+accept: */*
+origin: http://localhost:5173
+sec-fetch-site: same-origin
+sec-fetch-mode: cors
+sec-fetch-dest: empty
+referer: http://localhost:5173/detail/video-7092?userid=cap-3-1790184126544
+accept-encoding: gzip, deflate, br, zstd
+accept-language: zh-CN,zh;q=0.9
+
+{"user_id":"cap-3-1790184126544","content_id":"video-7092","played_sec":3.985,"position":4.015844,"stay_sec":4.437,"client_ts":1790184132497}
+	217
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 11
+ETag: W/"b-Ai2R8hgEarLmHKwesT1qcY913ys"
+Date: Wed, 23 Sep 2026 17:22:12 GMT
+Connection: close
+
+{"ok":true}
+===================================================================
+
+== 对照：恢复后心跳一跳（tcp.stream 9，frame 977）请求头差异 ==
+
+===================================================================
+Follow: tcp,ascii
+Filter: tcp.stream eq 9
+Node 0: [::1]:61514
+Node 1: [::1]:3000
+814
+POST /api/records/heartbeat HTTP/1.1
+host: localhost:3000
+connection: close
+content-length: 143
+sec-ch-ua-platform: "macOS"
+user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36
+sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"
+content-type: application/json
+sec-ch-ua-mobile: ?0
+accept: */*
+origin: http://localhost:5173
+sec-fetch-site: same-origin
+sec-fetch-mode: cors
+sec-fetch-dest: empty
+referer: http://localhost:5173/detail/video-7092?userid=cap-3-1790184126544
+accept-encoding: gzip, deflate, br, zstd
+accept-language: zh-CN,zh;q=0.9
+
+{"user_id":"cap-3-1790184126544","content_id":"video-7092","played_sec":41.439,"position":41.46987,"stay_sec":19.438,"client_ts":1790184170023}
+	217
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8

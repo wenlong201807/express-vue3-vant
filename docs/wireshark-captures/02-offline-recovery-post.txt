@@ -1,0 +1,47 @@
+# 02-offline-recovery-post.txt —— 恢复首跳（一次补齐）完整 POST 流跟随（tcp.stream 17，frame 1009）
+# 命令：tshark -r 02-offline-recovery.pcapng -z follow,tcp,ascii,17 -q 2>/dev/null
+
+
+===================================================================
+Follow: tcp,ascii
+Filter: tcp.stream eq 17
+Node 0: [::1]:59448
+Node 1: [::1]:3000
+815
+POST /api/records/heartbeat HTTP/1.1
+host: localhost:3000
+connection: close
+content-length: 144
+sec-ch-ua-platform: "macOS"
+user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36
+sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"
+content-type: application/json
+sec-ch-ua-mobile: ?0
+accept: */*
+origin: http://localhost:5173
+sec-fetch-site: same-origin
+sec-fetch-mode: cors
+sec-fetch-dest: empty
+referer: http://localhost:5173/detail/video-7092?userid=cap-2-1790183924955
+accept-encoding: gzip, deflate, br, zstd
+accept-language: zh-CN,zh;q=0.9
+
+{"user_id":"cap-2-1790183924955","content_id":"video-7092","played_sec":44.354,"position":44.373374,"stay_sec":45.002,"client_ts":1790183971455}
+	217
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 11
+ETag: W/"b-Ai2R8hgEarLmHKwesT1qcY913ys"
+Date: Wed, 23 Sep 2026 17:19:31 GMT
+Connection: close
+
+{"ok":true}
+===================================================================
+
+== 对比：断网前最后一跳（frame 945, stream 6）的 body ==
+{"user_id":"cap-2-1790183924955","content_id":"video-7092","played_sec":14.338,"position":14.358236,"stay_sec":15.002,"client_ts":1790183941455}
+
+== 服务端佐证（停抓后 curl，注意 store 已随重启重置，此为新进程数据）==
+# GET /api/records/video-7092?user_id=cap-2-1790183924955 →
+# {"content_id":"video-7092","played_sec":59.502,"position":59.521807,"stay_sec":60.014,"finished":1,"updated_at":"2026-09-23T17:19:46.472Z"}

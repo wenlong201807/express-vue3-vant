@@ -1,0 +1,51 @@
+# 03-hidden.txt —— 场景 3 hidden 心跳（beacon 补报 + 心跳停止 + 恢复续跳）关键帧导出
+# 实测日期：2026-09-24；驱动会话 user=cap-3-1790184126544（capture t0 ≈ epoch 1790184127.43）
+# 场景：播放 3s → 伪造 visibilityState=hidden 并派发 visibilitychange（参考 e2e 用例 2 写法）→ hidden 保持 22s
+#       → 恢复 visible → 再等 17s
+# 抓包命令：tshark -i lo0 -f "tcp port 3000" -B 4096 -w 03-hidden.pcapng
+
+== 全量 HTTP 请求清单（-Y "http.request"）==
+7	0.613269000	GET	/api/records/video-7092?user_id=cap-3-1790184126544
+19	0.615750000	GET	/api/contents?user_id=cap-3-1790184126544
+31	0.628555000	GET	/api/records/video-7092?user_id=cap-3-1790184126544
+43	0.672828000	GET	/source/7092_1790088875.mp4
+775	5.063875000	POST	/api/records/heartbeat
+937	6.739107000	POST	/api/records/heartbeat
+951	21.745043000	POST	/api/records/heartbeat
+965	36.740331000	POST	/api/records/heartbeat
+977	42.586804000	POST	/api/records/heartbeat
+
+== 本会话（cap-3）全部上报 ==
+775	5.063875000	5	{"user_id":"cap-3-1790184126544","content_id":"video-7092","played_sec":3.985,"position":4.015844,"stay_sec":4.437,"client_ts":1790184132497}
+977	42.586804000	9	{"user_id":"cap-3-1790184126544","content_id":"video-7092","played_sec":41.439,"position":41.46987,"stay_sec":19.438,"client_ts":1790184170023}
+
+== guest 噪声（对照：hidden 期间仍在 15s 节奏上照跳）==
+937	6.739107000	{"user_id":"guest","content_id":"video-7092","played_sec":75.497,"position":52.04173,"stay_sec":14509.463,"client_ts":1790184134182}
+951	21.745043000	{"user_id":"guest","content_id":"video-7092","played_sec":75.497,"position":52.04173,"stay_sec":14524.462,"client_ts":1790184149181}
+965	36.740331000	{"user_id":"guest","content_id":"video-7092","played_sec":75.497,"position":52.04173,"stay_sec":14539.462,"client_ts":1790184164181}
+
+== 关键帧解读（时间轴）==
+# t=0.613/0.629  基线 GET ×2（hook loadBaseline + Detail getRecord）、GET /api/contents
+# t≈1.05   点击大按钮开始播放
+# t=5.064  【frame 775】★ hidden 瞬间的 beacon 补报（sendBeacon，距派发事件 <0.1s）：
+#            {played_sec:3.985, position:4.015844, stay_sec:4.437}
+#            stay=4.437 = hook 挂载到 hidden 的可见墙钟——隐藏瞬间冻结并随补报送出
+# t=5.1 → 27.2  hidden 保持 22s：本会话零 POST（跨过了原 15s 心跳点——若未停跳，t≈20 处应有一跳）
+#            期间视频照常播放（currentTime 26.54），仅上报通道停（0.6 stopTimer）
+# t=27.2   恢复 visible：停留时钟续走 + startTimer 重启 interval
+# t=42.587 【frame 977】恢复后首跳：{played_sec:41.439, position:41.46987, stay_sec:19.438}
+#            ★ stay=19.438 = 4.437（隐藏前）+ 15.001（恢复后）——22s hidden 被完整冻结剔除，C3 语义的数值铁证
+#            ★ played=41.439 连续覆盖隐藏期——视频未暂停时播放量照常累计（停的只是心跳与停留钟）
+#            ★ 恢复点到首跳 15.4s ≈ 15s 间隔（±0.5 容差吸收 Chrome 定时器量化）
+
+== 与预期的符合性 ==
+# [符合] hidden 瞬间恰好一条 beacon POST（t=5.064，其后整个 hidden 窗口零上报）
+# [符合] hidden 22s 零 POST（对照：guest 噪声同窗内在 6.739 / 21.745 照跳，证明服务与链路本身通畅）
+# [符合] 恢复 visible 后心跳续跳（t=42.587），stay 的冻结-续走切换在数值上可复算
+
+== 判读注意事项 ==
+# beacon 与心跳 POST 同端点（/api/records/heartbeat），从抓包区分看两点：
+#   1) 时机：beacon 只出现在 hidden/退出瞬间，不在 15s 网格上；心跳永远在 15s 网格
+#   2) body 的 stay 值：beacon 的 stay 是「冻结时刻的可见墙钟」（如 4.437），心跳的 stay ≈ 15s 整数倍附近
+# 实测校验（03-hidden-post.txt）：两条 POST 经 vite 代理后的请求头逐字节一致（仅 content-length 差 2 字节），
+#   头部不可作为区分依据——时机与 body 数值是仅有的可靠判据

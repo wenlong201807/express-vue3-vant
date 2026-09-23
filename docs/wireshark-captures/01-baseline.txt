@@ -1,0 +1,31 @@
+# 01-baseline.txt —— 场景 1 基线心跳 关键帧导出
+# 场景：详情页（user=cap-1-1790183231322, content=video-7092）点击大按钮播放 35s，无任何网络扰动
+# 抓包命令：tshark -i lo0 -f "tcp port 3000" -B 4096 -w 01-baseline.pcapng（2026-09-24 实测）
+# 说明：本机另有一个滞留的旧标签页（user_id=guest，暂停态每 15s 照常心跳）持续产生噪声帧，
+#       以下凡【本会话】条目均为 http.file_data contains "cap-1-" 过滤结果，guest 帧仅列于全量清单供对照。
+
+== 全量 HTTP 请求清单（-Y "http.request"）==
+7	0.928714000	GET	/api/records/video-7092?user_id=cap-1-1790183231322
+13	0.928922000	GET	/api/contents?user_id=cap-1-1790183231322
+31	0.944365000	GET	/api/records/video-7092?user_id=cap-1-1790183231322
+43	0.994602000	GET	/source/7092_1790088875.mp4
+911	4.739035000	POST	/api/records/heartbeat
+934	15.935601000	POST	/api/records/heartbeat
+946	19.734484000	POST	/api/records/heartbeat
+962	30.931426000	POST	/api/records/heartbeat
+976	34.734621000	POST	/api/records/heartbeat
+
+== 本会话心跳 POST（-Y 'http.request.method=="POST" && http.file_data contains "cap-1-"'）==
+934	15.935601000	1790183247.893651000	6	/api/records/heartbeat	{"user_id":"cap-1-1790183231322","content_id":"video-7092","played_sec":14.344,"position":14.379453,"stay_sec":15.002,"client_ts":1790183247884}
+962	30.931426000	1790183262.889476000	8	/api/records/heartbeat	{"user_id":"cap-1-1790183231322","content_id":"video-7092","played_sec":29.486,"position":29.521222,"stay_sec":30.004,"client_ts":1790183262886}
+
+== 关键帧解读 ==
+# frame 7   t=0.929  GET /api/records/video-7092?user_id=cap-1-... —— hook setup 即发的 loadBaseline()（usePlayRecord.js:236）
+# frame 13  t=0.929  GET /api/contents?user_id=cap-1-...              —— Detail.vue onMounted 列表元数据
+# frame 31  t=0.944  GET /api/records/video-7092?user_id=cap-1-... —— Detail.vue getRecord()（contents 返回后 16ms），与 frame 7 同 URL 不同调用方
+# frame 43  t=0.995  GET /source/7092_1790088875.mp4                —— 视频源（8.4MB，Range 分段，后续帧略）
+# frame 934 t=15.936 POST /api/records/heartbeat  本会话第 1 跳：played=14.344 position=14.379453 stay=15.002
+# frame 962 t=30.931 POST /api/records/heartbeat  本会话第 2 跳：played=29.486 position=29.521222 stay=30.004
+# 两跳间隔 14.995s ≈ 15s（HEARTBEAT_INTERVAL）；三指标均递增，stay 增量恰为 15.002（可见墙钟）
+# 服务端 GET /api/records 佐证（停抓后 curl）：{played_sec:29.486, position:29.521222, stay_sec:30.004, finished:0} —— 与末跳 body 完全一致
+# 另：frame 911/946/976 为 guest 噪声心跳（间隔同为 15s），不属于本会话，判读时按 user_id 区分
