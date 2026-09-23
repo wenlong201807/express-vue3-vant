@@ -3,7 +3,7 @@
 嵌入企业微信 WebView 的 H5 应用：采集用户对视频 / 图文内容的「播放时长、播放位置、页面停留时间」三项指标，
 经心跳机制上报落库，支撑列表页续播状态反显与详情页续播定位。
 
-后端 Express 5 + 内存固定源数据存储（Node ≥ 20），前端 Vue 3 + Vite 5 + Vant 4 + TypeScript + video.js 8，单仓库管理。
+后端 Express 5 + 内存固定源数据存储（Node ≥ 20），前端 Vue 3 + Vite 5 + Vant 4 + video.js 8（v1.2.4 起纯 JS），单仓库管理。
 
 ## 功能特性
 
@@ -28,7 +28,7 @@ npm run dev   # concurrently 并起 Express(:3000) 与 Vite(:5173)
 | `npm run dev` | concurrently 同时启动后端与前端 |
 | `npm run dev:server` | 仅启动 Express（node --watch） |
 | `npm run dev:client` | 仅启动 Vite |
-| `npm run build` | vue-tsc 类型检查 + vite 构建 |
+| `npm run build` | vite 构建 |
 | `npm run test:server` | 后端接口测试（node --test） |
 | `npm run test:unit` | hook / 组件单测（vitest run） |
 | `npm run test:e2e` | Playwright e2e（自动起停前后端） |

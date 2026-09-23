@@ -8,6 +8,10 @@
 
 ## 变更记录
 
+### v1.2.4（2026-09-23）
+
+- 应用户指令前端全量 TypeScript→JavaScript（类型契约以 JSDoc @typedef 保全于源码注释），TS 工具链（tsconfig/vue-tsc/typescript）退役，vite.config 改 .mjs。行为与接口零变化。同日 v1.2.3：服务端 ESM 转 CommonJS（require/module.exports），行为零变化。
+
 ### v1.1.0（2026-09-23）
 
 - 应用户指令移除 SQLite（better-sqlite3），存储层改为内存模拟源数据（`server/store.js`：`SOURCE_CONTENTS` 常量 + `records` Map）。
@@ -22,7 +26,7 @@
 仓库 `/Users/zhuwenlong/Desktop/ai-study/express-vue3-vant` 为空仓 greenfield，当前仅包含 `require.txt`（需求描述）与 `source/7092_1790088875.mp4`（样例视频素材），需从零搭建完整系统：
 
 - **后端技术栈**：Express + Node + 内存模拟源数据（v1.1.0 起替代 SQLite）
-- **前端技术栈**：Vue3 + Vite + Vant + TypeScript
+- **前端技术栈**：Vue3 + Vite + Vant（v1.2.4 起 JS，无 TypeScript）
 - **运行环境**：嵌入企业微信 WebView 的 H5 页面
 
 需求来源 `require.txt`，归纳如下：
@@ -404,7 +408,7 @@ interface Reporter {
   - 脚本/文件路径；
   - 测试类型；
   - 覆盖的功能点备注（验证什么行为，如「heartbeat MAX 幂等：同一快照重发 played_sec 不变」）；
-  - 执行方式（完整可复制粘贴的命令，如 `npx vitest run src/hooks/__tests__/usePlayRecord.test.ts`）；
+  - 执行方式（完整可复制粘贴的命令，如 `npx vitest run src/hooks/__tests__/usePlayRecord.test.js`）；
   - 前置条件（需先起后端等）；
   - 预期结果。
 - **测试文件头部注释块**：每个测试文件头部写注释块，包含功能说明、运行命令、依赖前置——保证任何人拿到仓库都能二次执行。

@@ -30,42 +30,42 @@
 | B3 | MAX 幂等保护 | 同 A2：累计型指标（`played_sec` / `stay_sec`）只增不回退，幂等可重放 | `server/store.js` | `records.test.js`；smoke 幂等重发（脚本本身可重复执行） |
 | B4 | position 覆盖 | 同 A3 前半：最后位置语义，用户拖回看也如实覆盖 | `server/store.js` | `records.test.js`；smoke `[4/5]`（`position === 3` 覆盖断言） |
 | B5 | 95% 判完与永久保持 | 同 A3 后半：判完阈值按内容类型区分，`finished=1` 不回退 | `server/store.js`（`judgeFinished`） | `records.test.js`（永久性用例） |
-| B6 | userid 缺省 guest | `user_id` 由 URL query 传入并随心跳透传；查询类接口 query 缺省时按 `'guest'` 记录 | `server/routes/records.js`、`src/views/List.vue`、`src/views/Detail.vue` | `records.test.js`（缺省 guest）；`List.test.ts`（跳转缺省 guest）；e2e |
+| B6 | userid 缺省 guest | `user_id` 由 URL query 传入并随心跳透传；查询类接口 query 缺省时按 `'guest'` 记录 | `server/routes/records.js`、`src/views/List.vue`、`src/views/Detail.vue` | `records.test.js`（缺省 guest）；`List.test.js`（跳转缺省 guest）；e2e |
 
-### C 核心 hook（`src/hooks/usePlayRecord.ts`）
+### C 核心 hook（`src/hooks/usePlayRecord.js`）
 
 | 编号 | 功能 | 一句话说明 | 实现位置（文件） | 验证方式（对应测试/接口） |
 |------|------|------------|------------------|---------------------------|
-| C1 | 心跳调度 | `setInterval` 按 `interval`（可配，默认 15000ms）每跳组装「基线 + 会话增量」全量快照经 `reporter.heartbeat` 上报 | `src/hooks/usePlayRecord.ts`（`startTimer` / `makeSnapshot`） | `usePlayRecord.test.ts`（节奏与快照断言）；e2e「播放 17s 三指标增长」 |
-| C2 | 历史基线合并 | 挂载时拉 `GET /api/records/:contentId` 作基线，快照 = 历史基线 + 会话增量；基线竞态由全量快照口径自纠 | `src/hooks/usePlayRecord.ts`（`loadBaseline`） | `usePlayRecord.test.ts`（基线合并与竞态自纠）；e2e 续播反显 |
-| C3 | 停留时钟（visible 墙钟） | 仅 `document.visibilityState === 'visible'` 期间累计墙钟，`hidden` 冻结，回前台续计 | `src/hooks/usePlayRecord.ts`（`currentStaySessionMs` / `onVisibilityChange`） | `usePlayRecord.test.ts`（hidden 冻结）；e2e hidden 用例（stay 不涨） |
-| C4 | 退出矩阵（4 事件） | 全部事件驱动、绝不由定时器触发：hidden 停跳 + beacon 补报 / visible 重启心跳与停留时钟 / `pagehide` + `beforeunload` beacon 补报 / unmount 先拆定时器与监听再 keepalive 补报 | `src/hooks/usePlayRecord.ts`（`onVisibilityChange` / `onPageExit` / `onBeforeUnmount`） | `usePlayRecord.test.ts`（四事件逐一断言）；e2e hidden 补报、路由跳转补报两条用例 |
-| C5 | 默认 Reporter 双通道 | `heartbeat` 走 `fetch keepalive`（hidden 中 `ended` 补报不被页面回收取消）；`beacon` 走 `sendBeacon`（Blob + `application/json`），失败/不可用 fallback `fetch keepalive` | `src/hooks/usePlayRecord.ts`（`createDefaultReporter`） | `usePlayRecord.test.ts`（sendBeacon 与 keepalive 断言）；`第二部分 §4` 页面层切后台/关页 |
-| C6 | 返回值句柄 | `{ pause, resume, reportNow, latest }`：手动暂停/恢复心跳、立即上报（供视频 `ended` 调用）、当前快照（调试/反显） | `src/hooks/usePlayRecord.ts`（返回值） | `usePlayRecord.test.ts`（pause/resume/reportNow）；`Detail.test.ts`（ended 即时报） |
-| C7 | 双扩展点 | `source: PlaySource`（采集适配器）与 `reporter: Reporter`（上报通道）均可注入替换，`interval` / `onReport` 可配置；接口不变则 hook 与服务端零改动 | `src/hooks/usePlayRecord.ts`（接口定义 + options） | `usePlayRecord.test.ts`（mock reporter 注入全程）；D 组两适配器即接口实现实证 |
+| C1 | 心跳调度 | `setInterval` 按 `interval`（可配，默认 15000ms）每跳组装「基线 + 会话增量」全量快照经 `reporter.heartbeat` 上报 | `src/hooks/usePlayRecord.js`（`startTimer` / `makeSnapshot`） | `usePlayRecord.test.js`（节奏与快照断言）；e2e「播放 17s 三指标增长」 |
+| C2 | 历史基线合并 | 挂载时拉 `GET /api/records/:contentId` 作基线，快照 = 历史基线 + 会话增量；基线竞态由全量快照口径自纠 | `src/hooks/usePlayRecord.js`（`loadBaseline`） | `usePlayRecord.test.js`（基线合并与竞态自纠）；e2e 续播反显 |
+| C3 | 停留时钟（visible 墙钟） | 仅 `document.visibilityState === 'visible'` 期间累计墙钟，`hidden` 冻结，回前台续计 | `src/hooks/usePlayRecord.js`（`currentStaySessionMs` / `onVisibilityChange`） | `usePlayRecord.test.js`（hidden 冻结）；e2e hidden 用例（stay 不涨） |
+| C4 | 退出矩阵（4 事件） | 全部事件驱动、绝不由定时器触发：hidden 停跳 + beacon 补报 / visible 重启心跳与停留时钟 / `pagehide` + `beforeunload` beacon 补报 / unmount 先拆定时器与监听再 keepalive 补报 | `src/hooks/usePlayRecord.js`（`onVisibilityChange` / `onPageExit` / `onBeforeUnmount`） | `usePlayRecord.test.js`（四事件逐一断言）；e2e hidden 补报、路由跳转补报两条用例 |
+| C5 | 默认 Reporter 双通道 | `heartbeat` 走 `fetch keepalive`（hidden 中 `ended` 补报不被页面回收取消）；`beacon` 走 `sendBeacon`（Blob + `application/json`），失败/不可用 fallback `fetch keepalive` | `src/hooks/usePlayRecord.js`（`createDefaultReporter`） | `usePlayRecord.test.js`（sendBeacon 与 keepalive 断言）；`第二部分 §4` 页面层切后台/关页 |
+| C6 | 返回值句柄 | `{ pause, resume, reportNow, latest }`：手动暂停/恢复心跳、立即上报（供视频 `ended` 调用）、当前快照（调试/反显） | `src/hooks/usePlayRecord.js`（返回值） | `usePlayRecord.test.js`（pause/resume/reportNow）；`Detail.test.js`（ended 即时报） |
+| C7 | 双扩展点 | `source: PlaySource`（采集适配器）与 `reporter: Reporter`（上报通道）均可注入替换，`interval` / `onReport` 可配置；接口不变则 hook 与服务端零改动 | `src/hooks/usePlayRecord.js`（接口定义 + options） | `usePlayRecord.test.js`（mock reporter 注入全程）；D 组两适配器即接口实现实证 |
 
 ### D 采集适配器（`src/hooks/sources/`）
 
 | 编号 | 功能 | 一句话说明 | 实现位置（文件） | 验证方式（对应测试/接口） |
 |------|------|------------|------------------|---------------------------|
-| D1 | videoSource | 监听 `timeupdate`，相邻 `currentTime` 差值累加为 `playedDelta`；差值 ≥1s 或负差（seek 拖动/回拖）不计入，2x 倍速 0.5s 差值正常计入；`position = currentTime()`；`destroy` 移除监听 | `src/hooks/sources/videoSource.ts` | `src/hooks/__tests__/videoSource.test.ts`（5 用例） |
-| D2 | articleSource | 滚动事件约 200ms 节流（首沿立即 + 尾沿补发）；`position = 已滚动高度/(总高-视口) × 100` 向下取整收敛 0-100；容器不可滚动时 `position = 100`；`playedDelta` 恒 0 | `src/hooks/sources/articleSource.ts` | `src/hooks/__tests__/articleSource.test.ts`（5 用例） |
+| D1 | videoSource | 监听 `timeupdate`，相邻 `currentTime` 差值累加为 `playedDelta`；差值 ≥1s 或负差（seek 拖动/回拖）不计入，2x 倍速 0.5s 差值正常计入；`position = currentTime()`；`destroy` 移除监听 | `src/hooks/sources/videoSource.js` | `src/hooks/__tests__/videoSource.test.js`（5 用例） |
+| D2 | articleSource | 滚动事件约 200ms 节流（首沿立即 + 尾沿补发）；`position = 已滚动高度/(总高-视口) × 100` 向下取整收敛 0-100；容器不可滚动时 `position = 100`；`playedDelta` 恒 0 | `src/hooks/sources/articleSource.js` | `src/hooks/__tests__/articleSource.test.js`（5 用例） |
 
 ### E 前端页面（`src/views/` + `src/App.vue`）
 
 | 编号 | 功能 | 一句话说明 | 实现位置（文件） | 验证方式（对应测试/接口） |
 |------|------|------------|------------------|---------------------------|
-| E1 | 列表页三态 + 进度 + 跳转透传 | Vant Cell + Tag 三态（未开始灰/继续播放蓝/已播完绿）；副标题「已播 x% · 续播位置 xs」或「已读 x%」；点击跳 `/detail/:id?userid=`（缺省 guest） | `src/views/List.vue` | `src/views/__tests__/List.test.ts`；e2e 列表三态用例 |
-| E2 | 详情视频：倍速/拖动/续播反显 | video.js 初始化（`playbackRates: [0.5, 1, 1.25, 1.5, 2]` 原生倍速菜单、控制条原生 seek）；player `ready` 后 `currentTime(服务端 position)` 续播反显 | `src/views/Detail.vue` | `src/views/__tests__/Detail.test.ts`（初始化参数与反显）；e2e 续播反显与 `.vjs-playback-rate` 用例 |
-| E3 | 详情视频：ended 即时报 + dispose 联动 | `player.on('ended')` 调 `reportNow()` 即时上报播完快照；组件卸载 `player.dispose()` 释放资源，并与 hook 清理联动 | `src/views/Detail.vue` | `src/views/__tests__/Detail.test.ts`（ended、dispose） |
-| E4 | 详情图文：渲染 + 滚动定位 | 滚动容器 `v-html` 渲染正文，接入 `articleSource` 采集；进入页面按服务端 `position` 百分比滚动定位 | `src/views/Detail.vue` | `src/views/__tests__/Detail.test.ts`（v-html 与定位）；`第二部分 §4` 页面层图文判完 |
+| E1 | 列表页三态 + 进度 + 跳转透传 | Vant Cell + Tag 三态（未开始灰/继续播放蓝/已播完绿）；副标题「已播 x% · 续播位置 xs」或「已读 x%」；点击跳 `/detail/:id?userid=`（缺省 guest） | `src/views/List.vue` | `src/views/__tests__/List.test.js`；e2e 列表三态用例 |
+| E2 | 详情视频：倍速/拖动/续播反显 | video.js 初始化（`playbackRates: [0.5, 1, 1.25, 1.5, 2]` 原生倍速菜单、控制条原生 seek）；player `ready` 后 `currentTime(服务端 position)` 续播反显 | `src/views/Detail.vue` | `src/views/__tests__/Detail.test.js`（初始化参数与反显）；e2e 续播反显与 `.vjs-playback-rate` 用例 |
+| E3 | 详情视频：ended 即时报 + dispose 联动 | `player.on('ended')` 调 `reportNow()` 即时上报播完快照；组件卸载 `player.dispose()` 释放资源，并与 hook 清理联动 | `src/views/Detail.vue` | `src/views/__tests__/Detail.test.js`（ended、dispose） |
+| E4 | 详情图文：渲染 + 滚动定位 | 滚动容器 `v-html` 渲染正文，接入 `articleSource` 采集；进入页面按服务端 `position` 百分比滚动定位 | `src/views/Detail.vue` | `src/views/__tests__/Detail.test.js`（v-html 与定位）；`第二部分 §4` 页面层图文判完 |
 | E5 | 路由 key 重挂载 | `router-view` 绑 `:key="route.fullPath"`，路由变化强制重挂载，防止旧页面基线与新 `content_id` 组合误报 | `src/App.vue` | 无专项自动化断言；`第二部分 §4` 页面层手动回归 + 代码审阅 |
 
 ### F 工程与测试资产
 
 | 编号 | 功能 | 一句话说明 | 实现位置（文件） | 验证方式（对应测试/接口） |
 |------|------|------------|------------------|---------------------------|
-| F1 | 单仓双进程 dev | `npm run dev` 以 concurrently 并起 Express(:3000) 与 Vite(:5173)；Vite 将 `/api`、`/source` 代理到 3000；`/source` 同时为静态视频目录 | `package.json`、`vite.config.ts`、`server/index.js` | 手动：`npm run dev` 后访问 5173；`第二部分 §4` |
+| F1 | 单仓双进程 dev | `npm run dev` 以 concurrently 并起 Express(:3000) 与 Vite(:5173)；Vite 将 `/api`、`/source` 代理到 3000；`/source` 同时为静态视频目录 | `package.json`、`vite.config.mjs`、`server/index.js` | 手动：`npm run dev` 后访问 5173；`第二部分 §4` |
 | F2 | 三层测试 + 冒烟 | 后端 node:test 接口测试（15）/ vitest hook 与组件单测（33）/ Playwright e2e（5）/ curl 冒烟，四类共九项资产 | `package.json` scripts + 各测试文件 | `第二部分 §2`、`§3` 全量回归 |
 | F3 | 测试资产归档索引 | 九项资产在索引中逐项登记路径、覆盖点、执行命令、前置条件、预期结果，任何人可二次执行 | `docs/testing/README.md` | 按索引逐项复制命令执行（即 `第二部分 §2`） |
 
@@ -102,42 +102,42 @@
 - 预期输出：`# tests 12` / `# pass 12` / `# fail 0`
 - 合并跑：`npm run test:server`（两个文件一起）预期 `# pass 15` / `# fail 0`
 
-#### 3）`src/hooks/__tests__/usePlayRecord.test.ts` — 核心 hook 单测
+#### 3）`src/hooks/__tests__/usePlayRecord.test.js` — 核心 hook 单测
 
-- 命令：`npx vitest run src/hooks/__tests__/usePlayRecord.test.ts`
+- 命令：`npx vitest run src/hooks/__tests__/usePlayRecord.test.js`
 - 覆盖功能点：C1（心跳节奏 + 基线+增量快照）、C2（基线合并与竞态自纠）、C3（hidden 停留冻结）、C4（退出矩阵四事件）、C5（默认 Reporter 的 sendBeacon / fetch keepalive）、C6（pause/resume/reportNow）、C7（mock reporter 注入）、心跳失败静默、onReport 抛错清理仍完成
 - 前置条件：`npm install`；无需起后端（fetch 已 stub）
 - 预期输出：`Tests  15 passed (15)`
 
-#### 4）`src/hooks/__tests__/videoSource.test.ts` — 视频采集适配器单测
+#### 4）`src/hooks/__tests__/videoSource.test.js` — 视频采集适配器单测
 
-- 命令：`npx vitest run src/hooks/__tests__/videoSource.test.ts`
+- 命令：`npx vitest run src/hooks/__tests__/videoSource.test.js`
 - 覆盖功能点：D1 全部（差值累加、seek ≥1s 不计、负差回拖不计、2x 倍速 0.5s 正常计入、destroy 移除监听）
 - 前置条件：`npm install`；Player 为测试替身
 - 预期输出：`Tests  5 passed (5)`
 
-#### 5）`src/hooks/__tests__/articleSource.test.ts` — 图文采集适配器单测
+#### 5）`src/hooks/__tests__/articleSource.test.js` — 图文采集适配器单测
 
-- 命令：`npx vitest run src/hooks/__tests__/articleSource.test.ts`
+- 命令：`npx vitest run src/hooks/__tests__/articleSource.test.js`
 - 覆盖功能点：D2 全部（百分比换算向下取整收敛 0-100、200ms 节流首沿+尾沿、playedDelta 恒 0、不可滚动 = 100、destroy 清理）
 - 前置条件：`npm install`；容器为测试替身；fake timers
 - 预期输出：`Tests  5 passed (5)`
 
-#### 6）`src/views/__tests__/List.test.ts` — 列表页组件测试
+#### 6）`src/views/__tests__/List.test.js` — 列表页组件测试
 
-- 命令：`npx vitest run src/views/__tests__/List.test.ts`
+- 命令：`npx vitest run src/views/__tests__/List.test.js`
 - 覆盖功能点：E1（Cell+Tag 三态及颜色、副标题百分比文案、跳转透传 userid / 缺省 guest）、B6
 - 前置条件：`npm install`；`api/record` 为 mock
 - 预期输出：`Tests  3 passed (3)`
 
-#### 7）`src/views/__tests__/Detail.test.ts` — 详情页组件测试
+#### 7）`src/views/__tests__/Detail.test.js` — 详情页组件测试
 
-- 命令：`npx vitest run src/views/__tests__/Detail.test.ts`
+- 命令：`npx vitest run src/views/__tests__/Detail.test.js`
 - 覆盖功能点：E2（videojs 初始化参数、ready 续播反显）、E3（ended 即时上报、unmount dispose）、E4（v-html 渲染与 position 百分比定位）
 - 前置条件：`npm install`；video.js 与 `api/record` 为 mock
 - 预期输出：`Tests  5 passed (5)`
 
-#### 8）`e2e/play-record.e2e.spec.ts` — Playwright 端到端
+#### 8）`e2e/play-record.e2e.spec.js` — Playwright 端到端
 
 - 命令：`npm run test:e2e`
 - 覆盖功能点：C1/C2（真实播放 17s 后三指标经 HTTP 增长）、C3/C4（hidden beacon 补报且 hidden 期间无定时器上报；路由跳转补报）、A4/A5/B6（列表三态黑盒校验）、E1（三态渲染）、E2（续播反显 currentTime = 服务端 position、`.vjs-play-control` / `button.vjs-playback-rate` 存在）
@@ -218,7 +218,7 @@ npm run smoke         →  SMOKE OK
 
 ### 6. 常见问题（FAQ）
 
-1. **e2e 报端口占用（3000/5173）**：Playwright 配置 `reuseExistingServer: false`，会检测端口并拒绝在已占用时启动。先停掉手工 `npm run dev` 进程再跑 `npm run test:e2e`；如需改后端端口用 `PORT=xxx npm run dev:server`，但注意 `vite.config.ts` 的 proxy 固定指向 3000，改后端端口需同步改 proxy。
+1. **e2e 报端口占用（3000/5173）**：Playwright 配置 `reuseExistingServer: false`，会检测端口并拒绝在已占用时启动。先停掉手工 `npm run dev` 进程再跑 `npm run test:e2e`；如需改后端端口用 `PORT=xxx npm run dev:server`，但注意 `vite.config.mjs` 的 proxy 固定指向 3000，改后端端口需同步改 proxy。
 2. **e2e 播放失败 / 首个用例超时**：e2e 依赖本机安装的 Google Chrome（`channel: 'chrome'`）。Playwright 自带 Chromium 无 H.264 解码器，播不了 `source/7092_1790088875.mp4`，会导致「播放 17s 三指标增长」等用例失败。确认 Chrome 已安装且为较新版本。
 3. **服务重启后数据没了**：设计如此。存储层为内存实现（spec v1.1.0 移除 SQLite），记录不落盘，重启清零；源数据（1 视频 + 2 图文）随代码常驻不受影响。想重置测试数据，重启 `dev:server` 即可。
 4. **改了 server 代码数据就清零**：`dev:server` 用 `node --watch` 启动，`server/` 下任何文件被编辑都会立即重启进程、清空内存记录。联调时发现「数据丢了」先确认是不是刚保存过 server 文件。
