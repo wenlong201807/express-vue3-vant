@@ -21,7 +21,7 @@
 npm run test:server && npm run test:unit && npm run test:e2e && npm run smoke
 ```
 
-前置：`npm run dev:server` 保持运行（smoke 依赖；e2e 会自动管理自己的端口与独立库，
+前置：`npm run dev:server` 保持运行（smoke 依赖；e2e 会自动管理自己的端口，
 执行 e2e 前先停掉手工 dev 进程，结束后再重启 dev:server 跑 smoke）。
 
 预期：server `# pass 15` → unit `Tests  33 passed (33)` → e2e `5 passed` → smoke `SMOKE OK`。
