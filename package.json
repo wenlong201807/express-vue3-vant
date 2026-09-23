@@ -2,7 +2,6 @@
   "name": "express-vue3-vant",
   "version": "1.2.2",
   "private": true,
-  "type": "module",
   "engines": {
     "node": ">=20"
   },

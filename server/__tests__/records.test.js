@@ -8,11 +8,11 @@
  * 运行命令：npm run test:server   （或 node --test server/__tests__/records.test.js）
  * 前置条件：npm install 已完成；每个用例独立内存 store + 随机端口，无需起服务、无落盘
  */
-import test from 'node:test'
-import assert from 'node:assert/strict'
-import express from 'express'
-import { createStore } from '../store.js'
-import recordsRouter from '../routes/records.js'
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const express = require('express')
+const { createStore } = require('../store.js')
+const recordsRouter = require('../routes/records.js')
 
 async function startApi() {
   const store = createStore()

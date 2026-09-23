@@ -5,9 +5,9 @@
  * 运行命令：npm run test:server   （或 node --test server/__tests__/store.test.js）
  * 前置条件：npm install 已完成；纯内存对象，无落盘、无端口
  */
-import test from 'node:test'
-import assert from 'node:assert/strict'
-import { createStore, SOURCE_CONTENTS } from '../store.js'
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { createStore, SOURCE_CONTENTS } = require('../store.js')
 
 test('源数据结构：3 条（1 视频 + 2 图文），字段齐且视频 duration_sec 精确 61.486', () => {
   assert.equal(SOURCE_CONTENTS.length, 3)

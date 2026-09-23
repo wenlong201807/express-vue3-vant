@@ -8,7 +8,7 @@
  */
 
 // 源数据字段与值自原 server/db.js 种子数据逐字搬运
-export const SOURCE_CONTENTS = [
+const SOURCE_CONTENTS = [
   {
     id: 'video-7092',
     type: 'video',
@@ -84,7 +84,7 @@ function judgeFinished(content, position) {
  *   - records：Map<`${user_id}:${content_id}`>，
  *     值含 played_sec/position/stay_sec/finished/first_report_at/updated_at（另冗余 user_id/content_id 便于快照序列化）
  */
-export function createStore() {
+function createStore() {
   const contents = new Map(SOURCE_CONTENTS.map((content) => [content.id, content]))
   const records = new Map()
 
@@ -170,3 +170,5 @@ export function createStore() {
 
   return { contents, records, upsertRecord, getRecord, listContentsWithRecord }
 }
+
+module.exports = { SOURCE_CONTENTS, createStore }

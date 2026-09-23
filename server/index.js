@@ -1,10 +1,7 @@
-import express from 'express'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { createStore } from './store.js'
-import recordsRouter from './routes/records.js'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const express = require('express')
+const path = require('node:path')
+const { createStore } = require('./store.js')
+const recordsRouter = require('./routes/records.js')
 
 const app = express()
 const store = createStore()
@@ -21,4 +18,4 @@ app.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`)
 })
 
-export default app
+module.exports = app

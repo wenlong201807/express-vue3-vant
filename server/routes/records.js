@@ -1,6 +1,6 @@
-import { Router } from 'express'
+const { Router } = require('express')
 
-export default function recordsRouter(store) {
+function recordsRouter(store) {
   const router = Router()
 
   // 心跳上报与退出补报共用的唯一写入口（spec §6.1）
@@ -61,3 +61,5 @@ export default function recordsRouter(store) {
 
   return router
 }
+
+module.exports = recordsRouter
