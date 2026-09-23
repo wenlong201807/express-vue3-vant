@@ -5,22 +5,22 @@
  *   - GET /api/records/:contentId：空记录返回零值默认记录（HTTP 200，不做 404）
  *   - GET /api/contents：三态 status 聚合（not_started / continue / finished）
  * 运行命令：npm run test:server   （或 node --test server/__tests__/records.test.js）
- * 前置条件：npm install 已完成；每个用例独立内存库 + 随机端口，无需起服务、不影响 data/app.db
+ * 前置条件：npm install 已完成；每个用例独立内存 store + 随机端口，无需起服务、无落盘
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
-import { createDb } from '../db.js'
+import { createStore } from '../store.js'
 import recordsRouter from '../routes/records.js'
 
 async function startApi() {
-  const db = createDb(':memory:')
+  const store = createStore()
   const app = express()
   app.use(express.json())
-  app.use('/api', recordsRouter(db))
+  app.use('/api', recordsRouter(store))
   return await new Promise((resolve) => {
     const server = app.listen(0, () => {
-      resolve({ server, db, base: `http://localhost:${server.address().port}` })
+      resolve({ server, store, base: `http://localhost:${server.address().port}` })
     })
   })
 }
@@ -40,12 +40,12 @@ async function getRecord(api, contentId, userId) {
 }
 
 function videoDuration(api) {
-  return api.db.prepare('SELECT duration_sec AS d FROM contents WHERE id = ?').get('video-7092').d
+  return api.store.contents.get('video-7092').duration_sec
 }
 
 test('heartbeat 首次上报走 INSERT 分支，GET 返回落库值', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   const r1 = await postHeartbeat(api, { user_id: 'u1', content_id: 'video-7092', played_sec: 5, position: 5, stay_sec: 6, client_ts: 1 })
   assert.equal(r1.status, 200)
@@ -61,7 +61,7 @@ test('heartbeat 首次上报走 INSERT 分支，GET 返回落库值', async (t) 
 
 test('MAX 幂等：同一快照重发，played_sec / stay_sec 不变', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   const body = { user_id: 'u2', content_id: 'video-7092', played_sec: 12, position: 10, stay_sec: 8, client_ts: 2 }
   await postHeartbeat(api, body)
@@ -74,7 +74,7 @@ test('MAX 幂等：同一快照重发，played_sec / stay_sec 不变', async (t)
 
 test('乱序不回退：旧快照后到取 MAX；position 以最后请求覆盖', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   await postHeartbeat(api, { user_id: 'u3', content_id: 'video-7092', played_sec: 50, position: 40, stay_sec: 60, client_ts: 3 })
   await postHeartbeat(api, { user_id: 'u3', content_id: 'video-7092', played_sec: 20, position: 3, stay_sec: 30, client_ts: 4 })
@@ -87,7 +87,7 @@ test('乱序不回退：旧快照后到取 MAX；position 以最后请求覆盖'
 
 test('视频 95% 判完：达到阈值 finished=1，position 回落不回退（永久性）', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
   const threshold = videoDuration(api) * 0.95
 
   await postHeartbeat(api, { user_id: 'u4', content_id: 'video-7092', played_sec: 1, position: threshold + 0.01, stay_sec: 1, client_ts: 5 })
@@ -102,7 +102,7 @@ test('视频 95% 判完：达到阈值 finished=1，position 回落不回退（�
 
 test('视频未达 95% 不判完', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
   const threshold = videoDuration(api) * 0.95
 
   await postHeartbeat(api, { user_id: 'u5', content_id: 'video-7092', played_sec: 30, position: threshold - 1, stay_sec: 31, client_ts: 7 })
@@ -112,7 +112,7 @@ test('视频未达 95% 不判完', async (t) => {
 
 test('图文 95% 判完：position ≥ 95 判完，94 不判完', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   await postHeartbeat(api, { user_id: 'u6', content_id: 'article-001', played_sec: 0, position: 95, stay_sec: 40, client_ts: 8 })
   let r = await getRecord(api, 'article-001', 'u6')
@@ -125,7 +125,7 @@ test('图文 95% 判完：position ≥ 95 判完，94 不判完', async (t) => {
 
 test('GET records 空记录：返回零值默认记录，HTTP 200 不做 404', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   const r = await getRecord(api, 'video-7092', 'nobody')
   assert.equal(r.status, 200)
@@ -141,7 +141,7 @@ test('GET records 空记录：返回零值默认记录，HTTP 200 不做 404', a
 
 test('heartbeat 必传字段缺失返回 400', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   const r = await postHeartbeat(api, { content_id: 'video-7092', played_sec: 1, position: 1, stay_sec: 1 })
   assert.equal(r.status, 400)
@@ -150,7 +150,7 @@ test('heartbeat 必传字段缺失返回 400', async (t) => {
 
 test('heartbeat 未知 content_id 返回 404', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   const r = await postHeartbeat(api, { user_id: 'u8', content_id: 'no-such', played_sec: 1, position: 1, stay_sec: 1 })
   assert.equal(r.status, 404)
@@ -159,7 +159,7 @@ test('heartbeat 未知 content_id 返回 404', async (t) => {
 
 test('GET contents 三态聚合：not_started / continue / finished', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
   const threshold = videoDuration(api) * 0.95
 
   // 无记录 → not_started
@@ -194,7 +194,7 @@ test('GET contents 三态聚合：not_started / continue / finished', async (t) 
 
 test('GET records 缺 user_id 时服务端缺省 guest', async (t) => {
   const api = await startApi()
-  t.after(() => { api.server.closeAllConnections(); api.server.close(); api.db.close() })
+  t.after(() => { api.server.closeAllConnections(); api.server.close() })
 
   await postHeartbeat(api, { user_id: 'guest', content_id: 'article-002', played_sec: 0, position: 10, stay_sec: 5, client_ts: 12 })
   const res = await fetch(`${api.base}/api/records/article-002`)

@@ -1,17 +1,17 @@
 import express from 'express'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createDb } from './db.js'
+import { createStore } from './store.js'
 import recordsRouter from './routes/records.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const app = express()
-const db = createDb()
+const store = createStore()
 
 app.use(express.json())
 app.use('/source', express.static(path.join(__dirname, '..', 'source')))
-app.use('/api', recordsRouter(db))
+app.use('/api', recordsRouter(store))
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true })
 })
